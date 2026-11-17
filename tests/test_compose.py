@@ -38,6 +38,10 @@ def test_compose_config_is_separated_and_persistent(tmp_path):
     assert config['volumes'][job_volume['source']]['name'] == judge['environment']['SORT_JOB_VOLUME']
     assert config['services']['judge-image']['entrypoint'] == ['/bin/true']
     assert web['read_only'] and judge['read_only']
+    assert config['networks']['sorting-comp-net']['ipam']['config'] == [{'subnet': '10.230.15.0/24'}]
+    for service in config['services'].values():
+        assert set(service['networks']) == {'sorting-comp-net'}
+        assert 'network_mode' not in service
 
 
 def test_worker_mounts_only_current_job_volume_subdirectory(tmp_path):

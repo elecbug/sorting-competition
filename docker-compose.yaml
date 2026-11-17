@@ -40,6 +40,8 @@ services:
       SORT_PORT: 8100
     ports:
       - "${SORT_HOST:-0.0.0.0}:${SORT_PORT:-8100}:8100"
+    networks:
+      - sorting-comp-net
     volumes:
       - type: bind
         source: ${SORT_DATA_DIR:-./data}
@@ -62,7 +64,8 @@ services:
       args: *build-args
     group_add:
       - "${SORT_DOCKER_GID:?Run scripts/setup.py to detect the Docker socket group}"
-    network_mode: none
+    networks:
+      - sorting-comp-net
     stop_grace_period: 30s
     environment:
       <<: *judge-settings
@@ -101,7 +104,8 @@ services:
       dockerfile: judge/Dockerfile
     entrypoint: [/bin/true]
     restart: "no"
-    network_mode: none
+    networks:
+      - sorting-comp-net
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -109,3 +113,10 @@ services:
 volumes:
   judge-jobs:
     name: ${SORT_JOB_VOLUME:-sorting-competition-jobs}
+
+networks:
+  sorting-comp-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.230.15.0/24

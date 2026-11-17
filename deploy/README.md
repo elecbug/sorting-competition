@@ -17,7 +17,7 @@ Setup creates `.env` or adds missing Compose variables without replacing existin
 
 The worker starts after web health and judge-image preparation succeed. Web health is independent of worker readiness so submissions can remain queued during judge outages. Services use `restart: unless-stopped`, read-only root filesystems, non-root application users, dropped capabilities, and no-new-privileges. Ensure the Docker daemon itself starts at boot.
 
-Only the worker receives the Docker socket, with the detected socket GID as a supplementary group. It does not receive the administrator password. The web image has no Docker CLI. Worker networking is disabled; it uses the Unix socket.
+Only the worker receives the Docker socket, with the detected socket GID as a supplementary group. It does not receive the administrator password. The web image has no Docker CLI. Web, worker, and judge-image join the `sorting-comp-net` bridge with automatically assigned addresses from `10.230.15.0/24`. The worker uses the Unix socket to control Docker. Student execution containers use `--network none`.
 
 ```bash
 docker compose ps

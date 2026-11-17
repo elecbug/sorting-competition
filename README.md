@@ -25,6 +25,8 @@ Open `http://SERVER:8100`. Administrator ID: `admin`; read `SORT_ADMIN_PASSWORD`
 
 The stack has separate **web** and **worker** containers, plus a one-shot **judge-image** service that prepares the sandbox image. Each submission runs in another restricted, temporary container. Only the worker receives the Docker socket; the web container cannot access it. SQLite and uploaded CSVs remain in the host data directory.
 
+Compose services join `sorting-comp-net` and receive addresses from `10.230.15.0/24`. Student execution containers run with networking disabled.
+
 To migrate this server from the earlier systemd services:
 
 ```bash
