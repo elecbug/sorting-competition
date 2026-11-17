@@ -34,11 +34,11 @@ def statements(kind, column, header, count, columns):
       'stable': ['District equipment register','관할 구역별 장비 목록','辖区设备名册','Danh sách thiết bị theo khu vực','Реестр оборудования по районам'],
       'fast': ['Facility lookup index','시설 조회용 인덱스','设施查询索引','Chỉ mục tra cứu cơ sở','Индекс объектов'],
       'radix': ['Enforcement equipment export','단속 장비 대장 재배치','执法设备台账导出','Xuất danh mục thiết bị giám sát','Выгрузка реестра контрольных устройств']}
-    en=f'Sort by column {column} ({header}), C index {column-1}, ascending by unsigned UTF-8 bytes. Write your own comparison code. Preserve the header and all complete rows.\n'
-    ko=f'{column}번 칼럼({header}, C 인덱스 {column-1})을 unsigned UTF-8 바이트 기준 오름차순으로 정렬하세요. 비교 함수는 직접 구현하고 헤더와 각 행의 내용을 보존하세요.\n'
-    zh=f'按第 {column} 列（{header}，C 下标 {column-1}）的无符号 UTF-8 字节升序排序。自行实现比较，保留表头和完整行内容。\n'
-    vi=f'Sắp xếp cột {column} ({header}, chỉ số C {column-1}) tăng dần theo byte UTF-8 không dấu. Tự viết so sánh, giữ nguyên tiêu đề và nội dung hàng.\n'
-    ru=f'Сортируйте по столбцу {column} ({header}, индекс C {column-1}) по возрастанию беззнаковых байтов UTF-8. Реализуйте сравнение самостоятельно; сохраните заголовок и строки.\n'
+    en=f'Sort by column {column} ({header}), C index {column-1}, in ascending lexicographic order of unsigned UTF-8 bytes. Preserve the header and all complete rows. Only input/output and allocation library functions are allowed.\n'
+    ko=f'{column}번 칼럼({header}, C 인덱스 {column-1})을 UTF-8 바이트의 unsigned 값 기준 사전식 오름차순으로 정렬하세요. 헤더와 각 행의 내용을 보존하세요. 라이브러리 함수는 입출력·동적 메모리 할당만 허용합니다.\n'
+    zh=f'按第 {column} 列（{header}，C 下标 {column-1}）的无符号 UTF-8 字节字典序升序排序。保留表头和完整行内容。库函数仅允许输入输出和动态内存分配。\n'
+    vi=f'Sắp xếp cột {column} ({header}, chỉ số C {column-1}) tăng dần theo thứ tự từ điển của byte UTF-8 không dấu. Giữ nguyên tiêu đề và nội dung hàng. Chỉ được gọi hàm thư viện nhập xuất và cấp phát bộ nhớ động.\n'
+    ru=f'Сортируйте по столбцу {column} ({header}, индекс C {column-1}) лексикографически по возрастанию беззнаковых байтов UTF-8. Сохраните заголовок и строки. Разрешены только библиотечные функции ввода-вывода и динамического выделения памяти.\n'
     if kind=='stable':
         extra=['Rows with equal keys must retain their relative order from each input file. Minimize memory. Correctness 60, memory 40, time 0. Ranking uses Peak RSS; it includes the provided input structure.', '키가 같은 행은 각 원본 파일에서의 상대 순서를 유지하세요. 메모리를 최소화하세요. 정확성 60점, 메모리 40점, 시간 0점이며 입력 구조를 포함한 Peak RSS로 순위를 매깁니다.', '必须稳定：相同键的行保持各输入文件中的相对顺序。尽量减少内存。正确性60分，内存40分，时间0分。按包含输入结构的峰值RSS排名。', 'Phải ổn định: giữ thứ tự ban đầu của các hàng có khóa bằng nhau trong từng tệp. Giảm bộ nhớ. Độ đúng 60, bộ nhớ 40, thời gian 0; xếp hạng Peak RSS gồm cấu trúc đầu vào.', 'Сортировка должна быть стабильной: равные ключи сохраняют порядок каждого входного файла. Минимизируйте память. Корректность 60, память 40, время 0. Рейтинг по Peak RSS, включая входные данные.']
     else:
@@ -63,7 +63,7 @@ def stage(settings):
     r=unique_rows(r,0,lambda value:bool(re.fullmatch('[A-Z][0-9]{4}',value)))
     projected=[h.index('시도명'),0,h.index('설치장소')]
     specs.append(('radix',[h[i] for i in projected],[[row[i] for i in projected] for row in r],1,'전국무인교통단속카메라표준데이터.csv'))
-    manifest={'set_id':SET_ID,'problems':[]}
+    manifest={'set_id':SET_ID,'family':'sorting-course','problems':[]}
     database=Database(settings.data_dir)
     with database.connect() as db:
         manifest['replace']=[dict(row) for row in db.execute("SELECT id,title FROM problems WHERE title LIKE '[Sample]%' OR title LIKE '[샘플]%'")]
@@ -72,7 +72,7 @@ def stage(settings):
         directory=settings.data_dir/'generated_problems'/kind
         directory.mkdir(mode=0o700,parents=True,exist_ok=True)
         texts=statements(kind,column+1,header[column],len(rows),len(header));base=texts.pop('en')
-        problem={**base,'translations':texts,'scoring_mode':'memory' if kind=='stable' else 'time','is_published':False,'source':source,'column':column+1,'stable':kind=='stable','rows':len(rows),'columns':len(header),'cases':[]}
+        problem={**base,'key':kind,'translations':texts,'scoring_mode':'memory' if kind=='stable' else 'time','is_published':False,'source':source,'column':column+1,'stable':kind=='stable','rows':len(rows),'columns':len(header),'cases':[]}
         for label,public,seed,subset in [('Public input',True,100+index,None),('Hidden shuffle',False,900+index,None),('Hidden edge cases',False,1700+index,256)]:
             values=list(rows[:subset] if subset else rows)
             random.Random(seed).shuffle(values)

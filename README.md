@@ -92,7 +92,7 @@ Tests cover registration-free submissions, private passwords and history, simult
 
 ## Prepared assignments and publication
 
-Run `python3 scripts/prepare_course_problems.py` on the host (or the same script inside the web container) to prepare three assignments from `data/sample_csv`. On the next web startup, the validated pending set replaces only the previous `[Sample]` problems. The database is backed up first under `data/backups`; original CSV files and student credentials are preserved. The replacement runs once, atomically. New assignments start unpublished.
+Run `python3 scripts/prepare_course_problems.py` on the host (or the same script inside the web container) to prepare three assignments from `data/sample_csv`. On the next web startup, the validated pending set replaces only the previous `[Sample]` problems. The database is backed up first under `data/backups`; original CSV files and student credentials are preserved. Each manifest revision runs once, atomically. Later revisions update the same managed problems while preserving publication status and submissions. New assignments start unpublished.
 
 The assignments cover district records with an input-order requirement (column 2, memory priority), facility indexing (column 1, time priority), and equipment exports (column 2, time priority). Statements specify the required output and grading objective without naming an algorithm or spelling out optimization clues. Instructors can inspect private generation metadata; students see only published problem content and public inputs.
 

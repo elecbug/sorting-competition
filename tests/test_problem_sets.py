@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import pytest
 
 from app.problem_sets import install_pending
 from conftest import submit_student
@@ -7,7 +8,8 @@ from judge.supervisor import summarize_times
 from scripts.prepare_course_problems import statements,unique_rows
 
 
-def test_pending_set_replaces_only_samples_with_backup_and_is_idempotent(app,client,problem):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_pending_set_replaces_only_samples_with_backup_and_is_idempotent(app,client,problem,legacy):
     submitted=submit_student(client,problem).json()
     database=app.state.db;directory=app.state.settings.data_dir
     with database.connect() as db:db.execute("UPDATE problems SET title='[Sample] old' WHERE id=?",(problem,))
@@ -16,8 +18,8 @@ def test_pending_set_replaces_only_samples_with_backup_and_is_idempotent(app,cli
     problems=[]
     for index,kind in enumerate(('stable','fast','radix')):
         texts=statements(kind,1,'name',2,1);base=texts.pop('en')
-        problems.append({**base,'translations':texts,'scoring_mode':'memory' if index==0 else 'time','is_published':False,'cases':[{'title':'Input','input_file':'input.csv','answer_file':'answer.csv','is_public':True}]})
-    manifest={'set_id':'test','replace':[{'id':problem,'title':'[Sample] old'}],'problems':problems}
+        problems.append({**base,'key':kind,'translations':texts,'scoring_mode':'memory' if index==0 else 'time','is_published':False,'cases':[{'title':'Input','input_file':'input.csv','answer_file':'answer.csv','is_public':True}]})
+    manifest={'set_id':'test-v1','family':'sorting-course','replace':[{'id':problem,'title':'[Sample] old'}],'problems':problems}
     (directory/'pending_problem_set.json').write_text(json.dumps(manifest))
     install_pending(database,directory);install_pending(database,directory)
     with database.connect() as db:
@@ -34,6 +36,25 @@ def test_pending_set_replaces_only_samples_with_backup_and_is_idempotent(app,cli
     client.patch(f"/api/admin/problems/{rows[0]['id']}/publication",json={'is_published':True})
     response=submit_student(client,rows[0]['id'])
     assert response.status_code==201 and response.json()['id']>submitted['id']
+    with database.connect() as db:
+        case_ids=[r[0] for r in db.execute('SELECT id FROM testcases ORDER BY id')]
+        db.execute('UPDATE problems SET is_open=0 WHERE id=?',(rows[0]['id'],))
+        if legacy:
+            db.execute("DELETE FROM metadata WHERE key='installed_problem_set_members'")
+    manifest['set_id']='test-v2'
+    manifest['problems'][0]['description']='Revised conditions.'
+    if not legacy:
+        manifest['problems'][0]['title']='Revised title'
+    (directory/'pending_problem_set.json').write_text(json.dumps(manifest))
+    install_pending(database,directory)
+    with database.connect() as db:
+        revised=db.execute('SELECT * FROM problems ORDER BY id').fetchall()
+        assert [r['id'] for r in revised]==[r['id'] for r in rows]
+        assert revised[0]['description']=='Revised conditions.'
+        assert revised[0]['is_published'] and not revised[0]['is_open']
+        assert [r[0] for r in db.execute('SELECT id FROM testcases ORDER BY id')]==case_ids
+        assert db.execute('SELECT COUNT(*) FROM submissions').fetchone()[0]==1
+    assert len(list((directory/'backups').glob('*.db')))==2
 
 
 def test_problem_copy_states_conditions_without_algorithm_hints():

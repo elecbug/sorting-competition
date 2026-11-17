@@ -101,7 +101,7 @@ The judge image now installs libclang for source policy checking, so rebuild **a
 
 ## Applying the prepared course set
 
-`data/pending_problem_set.json` refers to private generated input/answer files. At the next updated web startup, the application validates them, takes a SQLite backup, removes the listed old sample problems and their sample submissions, and creates three unpublished assignments. Original source CSVs, student identities, and unrelated problems are retained. The manifest is applied once. No live database replacement is performed while an older server image that does not enforce publication is running.
+`data/pending_problem_set.json` refers to private generated input/answer files. At the next updated web startup, the application validates them, takes a SQLite backup, removes the listed old sample problems and their sample submissions, and creates three unpublished assignments. Original source CSVs, student identities, and unrelated problems are retained. Each manifest revision is applied once; subsequent revisions update the same managed problem and case IDs, preserving publication/submission settings and student submissions. Changed test data invalidates the relevant measurement profile. No live database replacement is performed while an older server image that does not enforce publication is running.
 
 ```bash
 sudo docker compose up -d --build
