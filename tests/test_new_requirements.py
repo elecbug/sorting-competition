@@ -90,8 +90,11 @@ def test_problem_specific_priorities_and_close_results_same_points(app,problem):
     for mode in ('memory','time','balanced'):
         with db.connect() as conn:conn.execute('UPDATE problems SET scoring_mode=? WHERE id=?',(mode,problem))
         entries=leaderboard(db,profile,problem)
-        assert entries[0]['score']==entries[1]['score']==100
-        assert entries[0]['rank']==entries[1]['rank']==1
+        assert entries[0]['score']==100
+        if mode=='memory':
+            assert entries[1]['score']<100 and entries[1]['rank']==2
+        else:
+            assert entries[1]['score']==100 and entries[1]['rank']==1
         if mode=='memory':assert entries[0]['time_score']==0 and entries[0]['memory_score']==40
         if mode=='time':assert entries[0]['time_score']==40 and entries[0]['memory_score']==0
 

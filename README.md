@@ -52,7 +52,7 @@ Existing student records and passwords continue to work. The old registration en
 
 ## Languages
 
-Student UI: English, Korean, Chinese, Vietnamese, and Russian. Administration, server messages, and documentation use English. The language selector remembers the student's choice.
+Student UI: English, Korean, Chinese, Vietnamese, and Russian. English is the source/fallback language; administrators can also change the UI language. Server messages and documentation use English. The language selector remembers the student's choice.
 
 Instructors can edit problem titles and statements in each language. Missing translations fall back to English. CSV contents, filenames, code, and GCC diagnostics remain unchanged.
 
@@ -61,7 +61,7 @@ Instructors can edit problem titles and statements in each language. Missing tra
 - Correctness: passed tests / all tests × 60.
 - All tests must pass to receive a rank and performance points.
 - CPU: 30 × best time / own time. Memory: 10 × best Peak RSS / own Peak RSS.
-- One checked warm-up and 10 measured runs per test by default. Time is the sum of per-test CPU medians; memory is the largest measured RSS.
+- Three checked warm-ups and N measured runs per test. CPU uses the sum of per-test trimmed means; memory is the largest measured RSS.
 - A native parent measures CPU/RSS outside the student process. Common data loading/output are included. Compilation and private answer validation are excluded.
 - The latest completed submission per student is ranked. Test/environment profiles separate incompatible measurements. Administrators can rejudge older submissions.
 
@@ -88,3 +88,21 @@ node --check app/static/i18n.js
 ```
 
 Tests cover registration-free submissions, private passwords and history, simultaneous first submissions, ID corrections, CSV validation, scoring, languages, Compose separation, and worker cancellation/recovery. Actual container execution requires Docker daemon access and built images.
+
+## Prepared assignments and publication
+
+Run `python3 scripts/prepare_course_problems.py` on the host (or the same script inside the web container) to prepare three assignments from `data/sample_csv`. On the next web startup, the validated pending set replaces only the previous `[Sample]` problems. The database is backed up first under `data/backups`; original CSV files and student credentials are preserved. The replacement runs once, atomically. New assignments start unpublished.
+
+The assignments cover district records with an input-order requirement (column 2, memory priority), facility indexing (column 1, time priority), and equipment exports (column 2, time priority). Statements specify the required output and grading objective without naming an algorithm or spelling out optimization clues. Instructors can inspect private generation metadata; students see only published problem content and public inputs.
+
+Administrators can change the UI language, toggle **Published to students** independently from **Accept submissions**, and clear student submissions with a confirmation showing the affected count. Clearing keeps student IDs/passwords, problems, and CSVs; it also clears benchmark caches and cancels active student jobs safely. Unpublished problems are unavailable through student lists, direct URLs, downloads, rankings, or submission history.
+
+## Library policy and repeatability
+
+Only the allowed standard I/O and allocation functions may be referenced. Comparisons, copies, and sorting must be implemented by students. Type/constant headers remain available. Checks use GCC's actual preprocessed source, a Clang syntax tree, and the object's unresolved symbols. Macro aliases, builtins, inline assembly, runtime-symbol replacement, and unresolved indirect calls are rejected. Compiler-generated structure-copy and stack-protection helpers are distinguished from explicit library calls. See `judge/policy.py` for the exact allowed API list.
+
+CPU measurements use warm-up runs followed by N independent processes, discard the configured fraction at both ends, and average the retained observations. With N=100 and a 10% trim, 80 observations remain. `SORT_WARMUP_RUNS`, `SORT_TRIM_FRACTION`, and `SORT_SETTLE_SECONDS` configure preparation; repetitions support 3–100. The sandbox is pinned to one CPU with a one-CPU quota, fixed memory/swap limits, and sequential execution.
+
+The same stripped executable and test/environment profile share one canonical accepted measurement. Exact-source repeats can reuse it before compilation. Comments and formatting that compile to the same executable therefore receive the same measurements. Close results share performance points as well as rank. Memory-priority problems use a 64 KiB tolerance; other memory rankings use 1 MiB, and time uses 1%. These measures reduce variation; CPU affinity alone does not eliminate interference from other host workloads.
+
+Wrong-answer reports describe only invalid output, changed rows, header changes, or incorrect row/tie order. They do not reveal private expected values or mismatch locations.

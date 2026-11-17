@@ -15,6 +15,7 @@ values = {
     "SORT_TIME_LIMIT": "2.0", "SORT_WALL_LIMIT": "4.0", "SORT_MEMORY_MB": "128",
     "SORT_UID": str(os.getuid()), "SORT_GID": str(os.getgid()),
     "SORT_JOB_VOLUME": "sorting-competition-jobs",
+    "SORT_WARMUP_RUNS": "3", "SORT_TRIM_FRACTION": "0.1", "SORT_SETTLE_SECONDS": "0.2",
 }
 socket = Path("/var/run/docker.sock")
 if socket.exists():

@@ -74,3 +74,12 @@ def test_forbidden_library_use_is_rejected_before_execution(tmp_path,launcher,bo
 def test_helper_functions_allocations_and_io_are_allowed(tmp_path,launcher):
     source='#include "csv_sort.h"\n#include <stdlib.h>\n#include <stdio.h>\nstatic int own_compare(char*a,char*b){return (unsigned char)*a-(unsigned char)*b;}\nvoid student_sort(rows*t){void*p=malloc(8);free(p);fprintf(stderr,"debug");if(t->count==2&&own_compare(t->rows[0].data[0].text,t->rows[1].data[0].text)>0){row r=t->rows[0];t->rows[0]=t->rows[1];t->rows[1]=r;}}'
     assert run_fixture(tmp_path,launcher,source)['status']=='accepted'
+
+
+def test_same_executable_fingerprint_ignores_comments_and_debug_names(tmp_path,launcher):
+    a=tmp_path/'a';b=tmp_path/'b';a.mkdir();b.mkdir()
+    source='#include "csv_sort.h"\nvoid student_sort(rows*t){if(t->count==2){row r=t->rows[0];t->rows[0]=t->rows[1];t->rows[1]=r;}}'
+    first=run_fixture(a,launcher,source)
+    second=run_fixture(b,launcher,'/* different source formatting */\n'+source)
+    assert first['status']==second['status']=='accepted'
+    assert first['binary_hash']==second['binary_hash']

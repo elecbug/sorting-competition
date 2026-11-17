@@ -59,7 +59,7 @@ The former registration records/passwords remain usable. `SORT_ENROLLMENT_CODE` 
 
 ## Languages and HTTPS
 
-The student UI supports `en`, `ko`, `zh`, `vi`, and `ru`, including verification, statuses, and ordinary errors. Dates/numbers follow the selected locale. Administrators always see English. Problem title/description translations are edited via **Content language**, with English fallback. CSV data, filenames, C code, and GCC diagnostics are preserved.
+The UI supports `en`, `ko`, `zh`, `vi`, and `ru`, including administrative controls, verification, statuses, and ordinary errors. Dates/numbers follow the selected locale. Administrators may select any supported UI language; English is the source/fallback language. Problem title/description translations are edited via **Content language**, with English fallback. CSV data, filenames, C code, and GCC diagnostics are preserved.
 
 Connect your domain and use `Caddyfile.example` for TLS. Set `SORT_HOST=127.0.0.1` (host-side published address) and `SORT_COOKIE_SECURE=true`, then recreate containers with `docker compose up -d`. The container itself always binds `0.0.0.0:8100`. Requests are limited using the peer address; add per-client limits at your proxy as needed. Arbitrary forwarded-IP headers are not trusted.
 
@@ -71,7 +71,7 @@ The trusted supervisor/native measurement parent use a separate UID from GCC and
 
 Defaults: 2 CPU seconds, 4 wall seconds, 128 MiB address space. The whole sandbox is limited to 1 GiB, including the supervisor. Candidate output, file descriptors, process count, and temporary storage are limited. Allocation failure followed by an invalid student pointer access may be reported as a runtime error.
 
-Each test has one checked warm-up followed by 10 measured fresh processes. All runs must match the answer. CPU medians are summed; the largest measured RSS is used. Compilation, Docker startup, Python CSV parsing, and answer verification are excluded. Shared C loading/output and input memory remain included.
+Each test has checked warm-ups followed by N measured fresh processes. All runs must match the answer. CPU trimmed means are summed; the largest measured RSS is used. Compilation, Docker startup, Python CSV parsing, and answer verification are excluded. Shared C loading/output and input memory remain included.
 
 CPU affinity does not reserve a physical core. Keep other services and its SMT sibling idle for fair measurements. Docker shares the host kernel; use a dedicated judge VM/server for hostile public workloads.
 
@@ -88,3 +88,25 @@ Only the latest completed submission per student in the current profile is ranke
 ## Backups
 
 The database contains private code, password hashes, and answer files. Use SQLite's backup API while running; do not copy only the main file while WAL is active. Back up `.env` with restricted permissions. Uploaded private data and generated answers must not be added to tracked sample directories.
+
+## Current measurement policy
+
+The old median-based description above is superseded by this policy: run the configured warm-ups, then N measured fresh processes, sort the CPU samples, remove `floor(N × SORT_TRIM_FRACTION)` from each tail, and average the remainder. Peak RSS remains the maximum across measured runs. Default warm-ups: 3; settling delay after preparation: 0.2 seconds; trim: 10%. N supports 3–100. The selected CPU also has a one-CPU quota. Keep the reserved core and its SMT sibling free of other workloads.
+
+A profile includes sandbox image, boot ID, CPU, limits, repetitions, warm-ups, trimming, and settling. A host reboot or changed profile requires rejudging. Accepted measurements are canonical per stripped executable hash/profile, with source-hash aliases for exact repeats. Clearing student submissions resets these caches. Job tokens and monotonically increasing submission IDs prevent an interrupted old job from updating a later submission after deletion.
+
+Scoring modes: balanced 60 correctness / 30 time / 10 memory; time-priority 60 / 40 / 0; memory-priority 60 / 0 / 40. All tests must pass for a rank. Focused modes rank their selected metric. Time tolerance is 1%; memory tolerance is 64 KiB for memory-priority assignments and 1 MiB otherwise. Results in the same tolerance group receive equal component points.
+
+The judge image now installs libclang for source policy checking, so rebuild **all services including judge-image** after upgrading. Only explicit standard I/O and allocation APIs are allowed; the exact allowlist is in `judge/policy.py`. Syntax and object-symbol validation are complementary checks for the supported C subset, not a proof about arbitrary self-modifying machine code. Candidates cannot use inline assembly, assembler aliases, location spoofing, or unresolved indirect function calls.
+
+## Applying the prepared course set
+
+`data/pending_problem_set.json` refers to private generated input/answer files. At the next updated web startup, the application validates them, takes a SQLite backup, removes the listed old sample problems and their sample submissions, and creates three unpublished assignments. Original source CSVs, student identities, and unrelated problems are retained. The manifest is applied once. No live database replacement is performed while an older server image that does not enforce publication is running.
+
+```bash
+sudo docker compose up -d --build
+```
+
+Then sign in as administrator and enable **Published to students** when ready. Changing the checkbox on an existing problem takes effect immediately; it is separate from submission closure. An unpublished problem and its input/history/ranking routes return no student-visible content. Administrators can still inspect it.
+
+All supported UI languages are now available while signed in as administrator; server logs and API messages continue to use English. **Clear student submissions** previews the count and requires confirmation, deletes only student code/results/queue entries, retains IDs/passwords and assignment data, and stops matching active jobs. The feature is not executed automatically by an update.

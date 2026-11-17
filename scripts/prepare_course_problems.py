@@ -12,7 +12,7 @@ from app.config import Settings
 from app.db import Database
 from judge.datasets import validate_pair
 
-SET_ID='sorting-course-v1'
+SET_ID='sorting-course-v2'
 
 def csv_text(header, rows):
     stream=io.StringIO(newline=''); writer=csv.writer(stream);writer.writerow(header);writer.writerows(rows);return stream.getvalue()
@@ -31,21 +31,18 @@ def unique_rows(rows,column,predicate=lambda value:True):
 
 def statements(kind, column, header, count, columns):
     names={
-      'stable': ['Stable sort with minimal memory','메모리를 최소화하는 안정정렬','最小内存稳定排序','Sắp xếp ổn định, ít bộ nhớ','Стабильная сортировка с малой памятью'],
-      'fast': ['Fast sorting of place names','금연구역명 고속 정렬','禁烟场所名称快速排序','Sắp xếp nhanh tên địa điểm','Быстрая сортировка названий'],
-      'radix': ['Fast sorting of fixed-width camera IDs','고정 길이 카메라 번호 고속 정렬','固定长度摄像头编号快速排序','Sắp xếp nhanh mã camera cố định','Быстрая сортировка кодов камер']}
+      'stable': ['District equipment register','관할 구역별 장비 목록','辖区设备名册','Danh sách thiết bị theo khu vực','Реестр оборудования по районам'],
+      'fast': ['Facility lookup index','시설 조회용 인덱스','设施查询索引','Chỉ mục tra cứu cơ sở','Индекс объектов'],
+      'radix': ['Enforcement equipment export','단속 장비 대장 재배치','执法设备台账导出','Xuất danh mục thiết bị giám sát','Выгрузка реестра контрольных устройств']}
     en=f'Sort by column {column} ({header}), C index {column-1}, ascending by unsigned UTF-8 bytes. Write your own comparison code. Preserve the header and all complete rows.\n'
     ko=f'{column}번 칼럼({header}, C 인덱스 {column-1})을 unsigned UTF-8 바이트 기준 오름차순으로 정렬하세요. 비교 함수는 직접 구현하고 헤더와 각 행의 내용을 보존하세요.\n'
     zh=f'按第 {column} 列（{header}，C 下标 {column-1}）的无符号 UTF-8 字节升序排序。自行实现比较，保留表头和完整行内容。\n'
     vi=f'Sắp xếp cột {column} ({header}, chỉ số C {column-1}) tăng dần theo byte UTF-8 không dấu. Tự viết so sánh, giữ nguyên tiêu đề và nội dung hàng.\n'
     ru=f'Сортируйте по столбцу {column} ({header}, индекс C {column-1}) по возрастанию беззнаковых байтов UTF-8. Реализуйте сравнение самостоятельно; сохраните заголовок и строки.\n'
     if kind=='stable':
-        extra=['Stability is required: rows with equal keys must retain their order in each input file. Minimize memory. Correctness 60, memory 40, time 0. Ranking uses Peak RSS; it includes the provided input structure.', '안정정렬이 필수입니다. 키가 같은 행은 각 원본 파일에서의 상대 순서를 유지하세요. 메모리를 최소화하세요. 정확성 60점, 메모리 40점, 시간 0점이며 입력 구조를 포함한 Peak RSS로 순위를 매깁니다.', '必须稳定：相同键的行保持各输入文件中的相对顺序。尽量减少内存。正确性60分，内存40分，时间0分。按包含输入结构的峰值RSS排名。', 'Phải ổn định: giữ thứ tự ban đầu của các hàng có khóa bằng nhau trong từng tệp. Giảm bộ nhớ. Độ đúng 60, bộ nhớ 40, thời gian 0; xếp hạng Peak RSS gồm cấu trúc đầu vào.', 'Сортировка должна быть стабильной: равные ключи сохраняют порядок каждого входного файла. Минимизируйте память. Корректность 60, память 40, время 0. Рейтинг по Peak RSS, включая входные данные.']
+        extra=['Rows with equal keys must retain their relative order from each input file. Minimize memory. Correctness 60, memory 40, time 0. Ranking uses Peak RSS; it includes the provided input structure.', '키가 같은 행은 각 원본 파일에서의 상대 순서를 유지하세요. 메모리를 최소화하세요. 정확성 60점, 메모리 40점, 시간 0점이며 입력 구조를 포함한 Peak RSS로 순위를 매깁니다.', '必须稳定：相同键的行保持各输入文件中的相对顺序。尽量减少内存。正确性60分，内存40分，时间0分。按包含输入结构的峰值RSS排名。', 'Phải ổn định: giữ thứ tự ban đầu của các hàng có khóa bằng nhau trong từng tệp. Giảm bộ nhớ. Độ đúng 60, bộ nhớ 40, thời gian 0; xếp hạng Peak RSS gồm cấu trúc đầu vào.', 'Сортировка должна быть стабильной: равные ключи сохраняют порядок каждого входного файла. Минимизируйте память. Корректность 60, память 40, время 0. Рейтинг по Peak RSS, включая входные данные.']
     else:
         extra=['Keys are unique in every test, so stability is not required. Optimize CPU time. Correctness 60, time 40, memory 0.', '각 테스트에서 키는 중복되지 않으므로 안정정렬은 필수가 아닙니다. CPU 시간을 최소화하세요. 정확성 60점, 시간 40점, 메모리 0점입니다.', '每个测试中的键均唯一，不要求稳定排序。优化CPU时间。正确性60分，时间40分，内存0分。', 'Khóa không trùng trong mỗi kiểm thử, không bắt buộc ổn định. Giảm thời gian CPU. Độ đúng 60, thời gian 40, bộ nhớ 0.', 'Ключи каждого теста уникальны, стабильность не требуется. Минимизируйте время CPU. Корректность 60, время 40, память 0.']
-    if kind=='radix':
-        hints=[' Every key has exactly five ASCII bytes: one uppercase letter and four decimal digits.', ' 모든 키는 대문자 1개와 숫자 4개로 구성된 정확히 5바이트의 ASCII 문자열입니다.', ' 每个键恰好5个ASCII字节：一个大写字母加四位十进制数字。', ' Mỗi khóa có đúng 5 byte ASCII: một chữ hoa và 4 chữ số.', ' Каждый ключ — ровно 5 байт ASCII: заглавная буква и четыре цифры.']
-        extra=[a+b for a,b in zip(extra,hints)]
     result={}
     for language,title,body,tail in zip(('en','ko','zh','vi','ru'),names[kind],(en,ko,zh,vi,ru),extra):
         result[language]={'title':title,'description':body+'\n'+tail+f'\n\n{count:,} rows / {columns} columns.'}

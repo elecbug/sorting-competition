@@ -29,9 +29,10 @@ function updateUser(){
   const admin=state.user?.role==="admin";I18n.use(I18n.preferred,admin);
   $("#auth-button").textContent=state.user?`${admin?t("administrator"):state.user.student_id} · ${t(admin?"signOut":"clearIdentity")}`:t("adminLogin");
   $("#admin-tab").hidden=!admin;$("#export-button").hidden=!admin;
-  $("#history-title").textContent=admin?t("submissions"):t("mySubmissions");
+  $("#history-title").textContent=admin?t("allSubmissions"):t("mySubmissions");
   $("#student-identity").hidden=admin;
   $("#student-history-form").hidden=!!state.user;
+  if(admin)$("#problem-form-title").textContent=t(state.newProblem?"newProblem":"editProblem");
   if(state.user?.role==="student"&&!$("#submit-student-id").value)$("#submit-student-id").value=state.user.student_id;
   if(state.tab==="admin"&&!admin)showTab("problem");
 }
@@ -184,7 +185,7 @@ $("#problem-language").addEventListener("change",e=>{saveProblemText();displayPr
 $("#problem-form").addEventListener("submit",async e=>{
   e.preventDefault();const f=e.target,isNew=state.newProblem||!state.selected;saveProblemText();
   await busy(f.querySelector('[type="submit"]'),async()=>{try{
-    const base=state.problemTexts.en;if(!base?.title?.trim()||!base?.description?.trim())throw new Error("English title and description are required.");
+    const base=state.problemTexts.en;if(!base?.title?.trim()||!base?.description?.trim())throw new Error(t("englishRequired"));
     const translations=Object.fromEntries(Object.entries(state.problemTexts).filter(([key])=>key!=="en"));
     const r=await api(isNew?"/api/admin/problems":`/api/admin/problems/${state.selected}`,{method:isNew?"POST":"PATCH",body:JSON.stringify({...base,is_open:f.elements.is_open.checked,is_published:f.elements.is_published.checked,scoring_mode:f.elements.scoring_mode.value,translations})});
     await loadOverview();if(isNew)await selectProblem(r.id);else await loadProblem(true);message("#problem-form-message","");toast(t("problemSaved"));
@@ -192,7 +193,7 @@ $("#problem-form").addEventListener("submit",async e=>{
 });
 $("#testcase-form").addEventListener("submit",async e=>{
   e.preventDefault();const f=e.target;
-  await busy(f.querySelector('[type="submit"]'),async()=>{try{if(!state.selected)throw new Error("Select a problem first.");const [original,answer]=await Promise.all([readFile(f.elements.input_file.files[0]),readFile(f.elements.answer_file.files[0])]);await api(`/api/admin/problems/${state.selected}/testcases`,{method:"POST",body:JSON.stringify({title:f.elements.title.value,input_csv:original,answer_csv:answer,is_public:f.elements.is_public.checked})});f.reset();message("#testcase-form-message","");await loadOverview();await loadProblem();await loadBoard();toast(t("pairSaved"));}catch(err){message("#testcase-form-message",err.message);}});
+  await busy(f.querySelector('[type="submit"]'),async()=>{try{if(!state.selected)throw new Error(t("selectProblem"));const [original,answer]=await Promise.all([readFile(f.elements.input_file.files[0]),readFile(f.elements.answer_file.files[0])]);await api(`/api/admin/problems/${state.selected}/testcases`,{method:"POST",body:JSON.stringify({title:f.elements.title.value,input_csv:original,answer_csv:answer,is_public:f.elements.is_public.checked})});f.reset();message("#testcase-form-message","");await loadOverview();await loadProblem();await loadBoard();toast(t("pairSaved"));}catch(err){message("#testcase-form-message",err.message);}});
 });
 $("#toggle-submissions").addEventListener("click",async e=>busy(e.currentTarget,async()=>{try{await api("/api/admin/submissions-open",{method:"POST",body:JSON.stringify({is_open:!state.admin.submissions_open})});await loadAdmin();await loadOverview();await loadProblem();}catch(err){toast(err.message);}}));
 $("#problem-form").elements.is_published.addEventListener("change",async e=>{

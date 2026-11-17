@@ -86,6 +86,12 @@ def classify(run):
     return None
 
 
+def summarize_times(samples, trim_fraction):
+    discard = int(len(samples) * trim_fraction)
+    retained = sorted(samples)[discard:len(samples)-discard] if discard else list(samples)
+    return statistics.mean(retained), retained, 2*discard
+
+
 def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness="/opt/harness.c", include="/opt/include", uid=65534, launcher="/opt/launch"):
     cases = job["cases"]
     total = len(cases)
@@ -147,10 +153,8 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
                 memories.append(run["memory_kb"])
         if result["status"] == "accepted":
             median = statistics.median(samples)
-            discard = int(len(samples) * job.get("trim_fraction", 0.1))
-            retained = sorted(samples)[discard:len(samples)-discard] if discard else samples
-            average = statistics.mean(retained)
-            result.update(time_ms=round(average, 4), median_ms=round(median,4), discarded_runs=2*discard,
+            average, retained, discarded = summarize_times(samples, job.get("trim_fraction",0.1))
+            result.update(time_ms=round(average, 4), median_ms=round(median,4), discarded_runs=discarded,
                           retained_runs=len(retained), memory_kb=max(memories), samples_ms=samples,
                           mad_ms=round(statistics.median(abs(x - median) for x in samples), 4))
             suite_times.append(average)

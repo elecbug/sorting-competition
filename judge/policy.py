@@ -5,9 +5,9 @@ from pathlib import Path
 import re
 import sys
 
-ALLOWED_HEADERS = {"csv_sort.h", "stdio.h", "stdlib.h", "stddef.h", "stdint.h", "stdbool.h", "limits.h", "inttypes.h", "errno.h", "stdarg.h"}
+ALLOWED_HEADERS = {"csv_sort.h", "stdio.h", "stdlib.h", "stddef.h", "stdint.h", "stdbool.h", "limits.h", "inttypes.h", "errno.h", "stdarg.h", "unistd.h", "fcntl.h", "sys/uio.h", "wchar.h"}
 ALLOWED_FUNCTIONS = set("""
-malloc calloc realloc free aligned_alloc
+malloc calloc realloc free aligned_alloc posix_memalign reallocarray
 fopen freopen fclose fflush setbuf setvbuf fprintf fscanf printf scanf snprintf sprintf sscanf
 vfprintf vfscanf vprintf vscanf vsnprintf vsprintf vsscanf fgetc fgets fputc fputs getc getchar
 putc putchar puts ungetc fread fwrite fgetpos fseek fsetpos ftell rewind clearerr feof ferror
@@ -16,12 +16,19 @@ __isoc99_fscanf __isoc99_scanf __isoc99_sscanf __isoc99_vfscanf __isoc99_vscanf 
 __isoc23_fscanf __isoc23_scanf __isoc23_sscanf __isoc23_vfscanf __isoc23_vscanf __isoc23_vsscanf
 __printf_chk __fprintf_chk __sprintf_chk __snprintf_chk __vprintf_chk __vfprintf_chk
 __vsprintf_chk __vsnprintf_chk __errno_location
+read write pread pwrite readv writev open open64 openat close lseek lseek64 dup dup2
+fgetc_unlocked fgets_unlocked fputc_unlocked fputs_unlocked getc_unlocked getchar_unlocked
+putc_unlocked putchar_unlocked fread_unlocked fwrite_unlocked fflush_unlocked
+feof_unlocked ferror_unlocked clearerr_unlocked fileno_unlocked
+fwide fwprintf fwscanf swprintf swscanf vfwprintf vfwscanf vswprintf vswscanf
+wprintf wscanf vwprintf vwscanf fgetwc fgetws fputwc fputws getwc getwchar putwc putwchar ungetwc
+__isoc99_fwscanf __isoc99_swscanf __isoc99_wscanf __isoc99_vfwscanf __isoc99_vswscanf __isoc99_vwscanf
 """.split())
 ALLOWED_INTRINSICS = {"__builtin_va_start", "__builtin_va_end", "__builtin_va_copy", "__builtin_offsetof"}
 DATA_SYMBOLS = {"stdin", "stdout", "stderr", "_GLOBAL_OFFSET_TABLE_"}
 # GCC may lower struct assignment/initialization into these calls. Explicit uses
 # are still rejected by AST validation before this object-level allowance.
-COMPILER_SYMBOLS = {"memcpy", "memset", "memmove"}
+COMPILER_SYMBOLS = {"memcpy", "memset", "memmove", "__stack_chk_fail", "__stack_chk_fail_local", "__divti3", "__udivti3", "__modti3", "__umodti3"}
 RESERVED = ALLOWED_FUNCTIONS | DATA_SYMBOLS | COMPILER_SYMBOLS | {"main", "_start", "exit", "strnlen", "__libc_start_main"}
 
 

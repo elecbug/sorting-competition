@@ -36,7 +36,7 @@ def leaderboard(database, profile, problem_id):
         e["score"] = round(e["correctness_score"] + e["time_score"] + e["memory_score"], 2)
     assign_ranks(accepted, "score", "rank", descending=True, absolute=0.1)
     assign_ranks(accepted, "time_ms", "time_rank", relative=0.01)
-    assign_ranks(accepted, "memory_kb", "memory_rank", absolute=1024)
+    assign_ranks(accepted, "memory_kb", "memory_rank", absolute=64 if mode == "memory" else 1024)
     # Measurements within the published tolerance receive equal performance
     # points, rather than only sharing a rank with slightly different scores.
     times = {e["time_rank"]: min(x["time_ms"] for x in accepted if x["time_rank"] == e["time_rank"]) for e in accepted}

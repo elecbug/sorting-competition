@@ -50,8 +50,8 @@ class Settings:
             trim_fraction=float(os.getenv("SORT_TRIM_FRACTION", "0.1")),
             settle_seconds=float(os.getenv("SORT_SETTLE_SECONDS", "0.2")),
         )
-        if not 3 <= settings.repetitions <= 30:
-            raise RuntimeError("Repetitions must be between 3 and 30.")
+        if not 3 <= settings.repetitions <= 100:
+            raise RuntimeError("Repetitions must be between 3 and 100.")
         if not (0 < settings.time_limit <= 10 and settings.time_limit < settings.wall_limit <= 20 and 32 <= settings.memory_mb <= 256):
             raise RuntimeError("Time or memory limits are outside the supported range.")
         if not (1 <= settings.warmup_runs <= 10 and 0 <= settings.trim_fraction <= 0.25 and 0 <= settings.settle_seconds <= 3):
