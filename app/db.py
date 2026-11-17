@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS testcases (
  input_csv TEXT NOT NULL, answer_csv TEXT NOT NULL, is_public INTEGER NOT NULL DEFAULT 1,
  row_count INTEGER NOT NULL, column_count INTEGER NOT NULL, digest TEXT NOT NULL, created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS identity_events (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ admin_id INTEGER NOT NULL REFERENCES users(id), old_student_id TEXT NOT NULL,
+ new_student_id TEXT NOT NULL, created_at REAL NOT NULL
+);
 """
 
 

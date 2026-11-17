@@ -44,6 +44,13 @@ def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limi
                 os.killpg(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            # As PID 1 in the sandbox, adopt and reap descendants if their native
+            # measurement parent was killed by a wall-time limit.
+            while True:
+                try:
+                    os.waitpid(-pid, 0)
+                except ChildProcessError:
+                    break
         out.seek(0)
         err.seek(0)
         metrics.seek(0)

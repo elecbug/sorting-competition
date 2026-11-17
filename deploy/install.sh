@@ -1,61 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ $EUID -ne 0 ]]; then
-  echo "Run sudo bash deploy/install.sh."
-  exit 1
-fi
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
-service_user="${SUDO_USER:-}"
-if [[ -z "$service_user" || "$service_user" == root ]]; then
-  echo "Run sudo bash deploy/install.sh from the intended non-root service account."
-  exit 1
-fi
-if [[ ! -x "$project_dir/.venv/bin/python" || ! -f "$project_dir/.env" ]]; then
-  echo "Run uv sync and .venv/bin/python scripts/setup.py first."
-  exit 1
-fi
-if ! getent group docker >/dev/null; then
-  echo "Docker Engine and the docker group are required."
-  exit 1
-fi
 cd "$project_dir"
-docker build -f judge/Dockerfile -t sorting-judge:local .
-# If temporary user services were used for initial preview, retire only our units.
-service_uid="$(id -u "$service_user")"
-runuser -u "$service_user" -- env XDG_RUNTIME_DIR="/run/user/$service_uid" systemctl --user stop sorting-arena-web.service sorting-arena-worker.service 2>/dev/null || true
-for kind in web worker; do
-  if [[ "$kind" == web ]]; then
-    entry="scripts/serve.py"
-    extra=""
+if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != root ]]; then
+  runuser -u "$SUDO_USER" -- python3 "$project_dir/scripts/setup.py"
+else
+  python3 scripts/setup.py
+fi
+docker compose config --quiet
+docker info >/dev/null
+# Build before touching the running legacy services.
+docker compose build
+legacy_user="${SUDO_USER:-$(id -un)}"
+legacy_uid="$(id -u "$legacy_user")"
+user_systemctl() {
+  if [[ $EUID -eq 0 ]]; then
+    runuser -u "$legacy_user" -- env XDG_RUNTIME_DIR="/run/user/$legacy_uid" systemctl --user "$@"
   else
-    entry="-m judge.worker"
-    extra="SupplementaryGroups=docker"
+    systemctl --user "$@"
   fi
-  cat > "/etc/systemd/system/sorting-arena-$kind.service" <<EOF
-[Unit]
-Description=Sorting Arena $kind
-After=network.target docker.service
-
-[Service]
-Type=simple
-User=$service_user
-WorkingDirectory=$project_dir
-ExecStart=$project_dir/.venv/bin/python $entry
-Restart=on-failure
-RestartSec=3
-UMask=0077
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=$project_dir/data
-PrivateTmp=true
-Environment=PYTHONDONTWRITEBYTECODE=1
-$extra
-
-[Install]
-WantedBy=multi-user.target
-EOF
+}
+user_units=()
+system_units=()
+for unit in sorting-arena-web.service sorting-arena-worker.service; do
+  if user_systemctl is-active --quiet "$unit" 2>/dev/null; then
+    user_units+=("$unit")
+  fi
+  if [[ $EUID -eq 0 ]] && systemctl is-active --quiet "$unit" 2>/dev/null; then
+    system_units+=("$unit")
+  fi
 done
-systemctl daemon-reload
-systemctl enable --now sorting-arena-web.service sorting-arena-worker.service
-echo "Installed. Check systemctl status sorting-arena-web sorting-arena-worker."
+if ((${#user_units[@]})); then user_systemctl stop "${user_units[@]}"; fi
+if ((${#system_units[@]})); then systemctl stop "${system_units[@]}"; fi
+if ! docker compose up -d --wait --wait-timeout 120; then
+  echo "Compose startup failed."
+  if ((${#user_units[@]}+${#system_units[@]})); then
+    docker compose down
+    if ((${#system_units[@]})); then systemctl start "${system_units[@]}"; fi
+    if ((${#user_units[@]})); then user_systemctl start "${user_units[@]}"; fi
+    echo "Restored the previous services."
+  fi
+  exit 1
+fi
+for unit in "${system_units[@]}"; do systemctl disable "$unit"; done
+for unit in "${user_units[@]}"; do user_systemctl disable "$unit" 2>/dev/null || true; done
+docker compose ps
+echo "Compose deployment is healthy. Web and worker restart automatically with Docker."

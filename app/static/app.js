@@ -5,7 +5,7 @@ const badge=status=>`<span class="badge ${esc(status)}">${esc(t(status))}</span>
 const number=(value,digits=2)=>value==null?"—":Number(value).toLocaleString(I18n.intl,{minimumFractionDigits:digits,maximumFractionDigits:digits});
 const time=value=>new Date(value*1000).toLocaleString(I18n.intl,{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
 const content=(problem,field)=>problem?.translations?.[I18n.locale]?.[field]||problem?.[field]||"";
-const state={user:null,problems:[],problem:null,selected:null,tab:"problem",authMode:"login",entries:[],drafts:new Map(),newProblem:true,admin:null,globalOpen:true,problemTexts:{},editLanguage:"en",detailId:null};
+const state={user:null,problems:[],problem:null,selected:null,tab:"problem",entries:[],drafts:new Map(),newProblem:true,admin:null,globalOpen:true,problemTexts:{},editLanguage:"en",detailId:null};
 const initialCode='#include "csv_sort.h"\n\nvoid student_sort(rows *table) {\n    // Sort table->rows according to the problem.\n\n}\n';
 let toastTimer,polling=false;
 async function api(path,options={}) {
@@ -13,7 +13,7 @@ async function api(path,options={}) {
   if(options.body!==undefined)headers["Content-Type"]="application/json";
   let response;try{response=await fetch(path,{...options,headers,credentials:"same-origin"});}catch{throw new Error(t("connectionLost"));}
   let body;try{body=await response.json();}catch{throw new Error(t("invalidResponse"));}
-  if(!response.ok)throw new Error(Array.isArray(body.detail)?t("invalidForm"):I18n.server(body.detail||t("invalidResponse")));
+  if(!response.ok)throw new Error(Array.isArray(body.detail)?t("invalidForm"):(path==="/api/login"?body.detail:I18n.server(body.detail||t("invalidResponse"))));
   return body;
 }
 function message(selector,value){$(selector).textContent=value;$(selector).hidden=!value;}
@@ -27,10 +27,19 @@ function showTab(tab){
 }
 function updateUser(){
   const admin=state.user?.role==="admin";I18n.use(I18n.preferred,admin);
-  $("#auth-button").textContent=state.user?`${state.user.nickname} · ${t("signOut")}`:t("signIn");
+  $("#auth-button").textContent=state.user?`${admin?"Administrator":state.user.student_id} · ${t(admin?"signOut":"clearIdentity")}`:t("adminLogin");
   $("#admin-tab").hidden=!admin;$("#export-button").hidden=!admin;
   $("#history-title").textContent=admin?"All submissions":t("mySubmissions");
+  $("#student-identity").hidden=admin;
+  $("#student-history-form").hidden=!!state.user;
+  if(state.user?.role==="student"&&!$("#submit-student-id").value)$("#submit-student-id").value=state.user.student_id;
   if(state.tab==="admin"&&!admin)showTab("problem");
+}
+function clearIdentityContext(){
+  state.drafts.clear();$("#source-code").value=initialCode;updateLines();
+  $("#submit-student-id").value="";$("#submit-password").value="";$("#student-history-form").reset();
+  message("#submit-message","");message("#history-error","");
+  $("#history-body").innerHTML="";$("#detail-dialog").close();$("#detail-content").textContent="";
 }
 async function loadOverview(){
   const o=await api("/api/problems");state.problems=o.problems;state.globalOpen=o.submissions_open;
@@ -71,13 +80,13 @@ function renderBoard(){
   $("#metric-memory").innerHTML=accepted.length?`${number(Math.min(...accepted.map(e=>e.memory_kb))/1024)}<small>MiB</small>`:"—";
   $("#leaderboard-title").textContent=content(state.problem,"title")||t("leaderboard");$("#export-button").href=`/api/problems/${state.selected}/leaderboard.csv`;
   $("#leaderboard-empty").hidden=entries.length>0;
-  $("#leaderboard-body").innerHTML=entries.map(e=>`<tr><td><span class="rank-chip ${e.rank===1?"first":""}">${e.rank??"—"}</span></td><td>${esc(e.nickname)}${e.status!=="accepted"?`<br>${badge(e.status)}`:""}</td><td class="mono">${e.passed} / ${e.total}</td><td class="mono">${number(e.time_ms)}</td><td class="mono">${number(e.memory_kb==null?null:e.memory_kb/1024)}</td><td><strong>${number(e.score)}</strong></td></tr>`).join("");
+  $("#leaderboard-body").innerHTML=entries.map(e=>`<tr><td><span class="rank-chip ${e.rank===1?"first":""}">${e.rank??"—"}</span></td><td>${esc(e.student_id)}${e.status!=="accepted"?`<br>${badge(e.status)}`:""}</td><td class="mono">${e.passed} / ${e.total}</td><td class="mono">${number(e.time_ms)}</td><td class="mono">${number(e.memory_kb==null?null:e.memory_kb/1024)}</td><td><strong>${number(e.score)}</strong></td></tr>`).join("");
 }
 async function loadHistory(){
   if(!state.user){$("#history-body").innerHTML="";$("#history-empty").hidden=false;return;}
   const id=state.selected,r=await api(`/api/submissions${id?`?problem_id=${id}`:""}`);if(state.selected!==id)return;
   $("#history-empty").hidden=r.submissions.length>0;
-  $("#history-body").innerHTML=r.submissions.map(s=>`<tr><td>#${s.id}</td><td>${esc(s.nickname)}</td><td>${badge(s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
+  $("#history-body").innerHTML=r.submissions.map(s=>`<tr><td>#${s.id}</td><td>${esc(s.student_id)}</td><td>${badge(s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
 }
 async function showDetail(id){
   const s=await api(`/api/submissions/${id}`),r=s.result;state.detailId=id;$("#detail-title").textContent=`${t("submission")} #${id}`;
@@ -87,9 +96,9 @@ async function showDetail(id){
 }
 async function loadAdmin(){
   if(state.user?.role!=="admin")return;const a=await api("/api/admin/settings");state.admin=a;
-  $("#invite-code").textContent=a.enrollment_code;$("#toggle-submissions").textContent=a.submissions_open?"Close submissions":"Open submissions";
+  $("#toggle-submissions").textContent=a.submissions_open?"Close submissions":"Open submissions";
   $("#admin-worker").textContent=a.worker.message;$("#student-count").textContent=a.users.length;
-  $("#student-list").innerHTML=a.users.length?a.users.map(u=>`<span>${esc(u.nickname)}<small>${esc(u.student_id)}</small></span>`).join(""):'<p class="footnote">No students registered.</p>';
+  $("#student-list").innerHTML=a.users.length?a.users.map(u=>`<span>${esc(u.student_id)} <button class="text-button" data-correct-id="${u.id}">Correct ID</button></span>`).join(""):'<p class="footnote">No submissions yet.</p>';
   if(state.problem&&state.newProblem)fillProblemForm(state.problem);renderAdminCases();
 }
 function saveProblemText(){const f=$("#problem-form");state.problemTexts[state.editLanguage]={title:f.elements.title.value,description:f.elements.description.value};}
@@ -110,28 +119,18 @@ async function readFile(file,max=32*1024*1024){
   try{return new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer());}catch{throw new Error(t("utf8Required"));}
 }
 function updateLines(){$("#line-count").textContent=t("lines",{count:$("#source-code").value.split("\n").length});}
-function authMode(mode){
-  state.authMode=mode;const register=mode==="register",f=$("#auth-form");
-  $$(".register-only").forEach(el=>{el.hidden=!register;el.querySelector("input").required=register;});
-  $$("[data-auth-mode]").forEach(b=>b.classList.toggle("active",b.dataset.authMode===mode));
-  $("#auth-title").textContent=t(register?"register":"signIn");$("#auth-submit").textContent=t(register?"register":"signIn");
-  f.elements.password.autocomplete=register?"new-password":"current-password";f.elements.password.minLength=register?10:1;message("#auth-error","");
-}
 $("#language-select").addEventListener("change",async e=>{
-  I18n.use(e.target.value);updateUser();authMode(state.authMode);updateLines();
+  I18n.use(e.target.value);updateUser();updateLines();
   try{await loadOverview();await loadProblem();await loadBoard();if(state.user)await loadHistory();if($("#detail-dialog").open)await showDetail(state.detailId);}catch(err){toast(err.message);}
 });
-$("#auth-button").addEventListener("click",async()=>{
-  try{if(state.user){await api("/api/logout",{method:"POST"});state.user=null;state.admin=null;updateUser();await loadOverview();await loadProblem();await loadHistory();toast(t("loggedOut"));}else{authMode("login");$("#auth-dialog").showModal();}}catch(e){toast(e.message);}
-});
+$("#auth-button").addEventListener("click",async e=>busy(e.currentTarget,async()=>{
+  try{if(state.user){const admin=state.user.role==="admin";await api("/api/logout",{method:"POST"});state.user=null;state.admin=null;clearIdentityContext();updateUser();await loadOverview();await loadProblem();await loadHistory();toast(t(admin?"loggedOut":"identityCleared"));}else{message("#auth-error","");$("#auth-dialog").showModal();}}catch(e){toast(e.message);}
+}));
 $("#guide-button").addEventListener("click",()=>$("#guide-dialog").showModal());
-$("#auth-form").addEventListener("invalid",e=>e.target.setCustomValidity(t("invalidForm")),true);
-$("#auth-form").addEventListener("input",e=>e.target.setCustomValidity?.(""));
 $("#auth-form").addEventListener("submit",async e=>{
   e.preventDefault();const f=e.target;
   await busy($("#auth-submit"),async()=>{try{
-    const login={student_id:f.elements.student_id.value.trim(),password:f.elements.password.value};
-    if(state.authMode==="register")await api("/api/register",{method:"POST",body:JSON.stringify({...login,nickname:f.elements.nickname.value.trim(),enrollment_code:f.elements.enrollment_code.value.trim()})});
+    const login={student_id:"admin",password:f.elements.password.value};
     const r=await api("/api/login",{method:"POST",body:JSON.stringify(login)});state.user=r.user;$("#auth-dialog").close();f.reset();updateUser();await loadOverview();await loadProblem(state.user.role==="admin");await loadHistory();
     if(state.user.role==="admin"){await loadAdmin();if(!state.problems.length)showTab("admin");}toast(t("loggedIn"));
   }catch(err){message("#auth-error",err.message);}});
@@ -141,9 +140,39 @@ $("#source-code").addEventListener("keydown",e=>{if(e.key==="Tab"){e.preventDefa
 $("#file-button").addEventListener("click",()=>$("#source-file").click());
 $("#source-file").addEventListener("change",async e=>{try{const file=e.target.files[0];if(!file)return;if(!file.name.toLowerCase().endsWith(".c"))throw new Error(t("cFileRequired"));$("#source-code").value=await readFile(file,65536);updateLines();toast(t("sourceLoaded"));}catch(err){toast(err.message);}finally{e.target.value="";}});
 $("#submit-button").addEventListener("click",async e=>{
-  if(!state.user){authMode("login");$("#auth-dialog").showModal();return;}
-  await busy(e.currentTarget,async()=>{try{const source=$("#source-code").value;if(new TextEncoder().encode(source).length>65536)throw new Error(t("sourceTooLarge"));const r=await api("/api/submissions",{method:"POST",body:JSON.stringify({problem_id:state.selected,source})});message("#submit-message","");showTab("history");toast(t("submitted",{id:r.id}));}catch(err){message("#submit-message",err.message);}});
+  await busy(e.currentTarget,async()=>{try{
+    const source=$("#source-code").value;if(new TextEncoder().encode(source).length>65536)throw new Error(t("sourceTooLarge"));
+    const payload={problem_id:state.selected,source};
+    if(state.user?.role!=="admin"){
+      const id=$("#submit-student-id"),password=$("#submit-password");
+      if(!id.reportValidity())return;
+      if(password.value.length<4)throw new Error(t("personalPasswordMinimum"));
+      if(!password.reportValidity())return;
+      payload.student_id=id.value.trim();payload.password=password.value;
+    }
+    const r=await api("/api/submissions",{method:"POST",body:JSON.stringify(payload)});
+    state.user=r.user;$("#submit-password").value="";updateUser();message("#submit-message","");showTab("history");toast(t("submitted",{id:r.id}));
+  }catch(err){message("#submit-message",err.message);}});
 });
+$("#student-history-form").addEventListener("submit",async e=>{
+  e.preventDefault();const f=e.target;
+  await busy(f.querySelector('[type="submit"]'),async()=>{try{
+    const r=await api("/api/student/session",{method:"POST",body:JSON.stringify({student_id:f.elements.student_id.value.trim(),password:f.elements.password.value})});
+    state.user=r.user;$("#submit-student-id").value=r.user.student_id;f.elements.password.value="";message("#history-error","");updateUser();await loadHistory();
+  }catch(err){message("#history-error",err.message);}});
+});
+$("#identity-form").addEventListener("submit",async e=>{
+  e.preventDefault();const f=e.target;
+  await busy(f.querySelector('[type="submit"]'),async()=>{try{
+    await api(`/api/admin/students/${f.dataset.userId}`,{method:"PATCH",body:JSON.stringify({student_id:f.elements.student_id.value.trim(),password:f.elements.password.value})});
+    $("#identity-dialog").close();await loadAdmin();await loadHistory();await loadBoard();toast("Student ID corrected; submissions preserved.");
+  }catch(err){message("#identity-error",err.message);}});
+});
+$("#identity-dialog").addEventListener("close",()=>{$("#identity-form").reset();message("#identity-error","");});
+for(const container of [$("#student-identity"),$("#student-history-form")]){
+  container.addEventListener("invalid",e=>e.target.setCustomValidity(t(e.target.type==="password"&&e.target.value.length<4?"personalPasswordMinimum":"invalidForm")),true);
+  container.addEventListener("input",e=>e.target.setCustomValidity?.(""));
+}
 $("#new-problem-button").addEventListener("click",()=>{state.newProblem=true;state.problemTexts={};$("#problem-form").reset();displayProblemText("en");$("#problem-form-title").textContent="New problem";message("#problem-form-message","");$("#problem-form").elements.title.focus();});
 $("#problem-language").addEventListener("change",e=>{saveProblemText();displayProblemText(e.target.value);});
 $("#problem-form").addEventListener("submit",async e=>{
@@ -159,19 +188,22 @@ $("#testcase-form").addEventListener("submit",async e=>{
   e.preventDefault();const f=e.target;
   await busy(f.querySelector('[type="submit"]'),async()=>{try{if(!state.selected)throw new Error("Select a problem first.");const [original,answer]=await Promise.all([readFile(f.elements.input_file.files[0]),readFile(f.elements.answer_file.files[0])]);await api(`/api/admin/problems/${state.selected}/testcases`,{method:"POST",body:JSON.stringify({title:f.elements.title.value,input_csv:original,answer_csv:answer,is_public:f.elements.is_public.checked})});f.reset();message("#testcase-form-message","");await loadOverview();await loadProblem();await loadBoard();toast("Input and answer validated and saved.");}catch(err){message("#testcase-form-message",err.message);}});
 });
-$("#copy-invite").addEventListener("click",async()=>{try{await navigator.clipboard.writeText(state.admin.enrollment_code);toast("Class code copied.");}catch{toast("Select and copy the class code. Clipboard access requires HTTPS.");}});
 $("#toggle-submissions").addEventListener("click",async e=>busy(e.currentTarget,async()=>{try{await api("/api/admin/submissions-open",{method:"POST",body:JSON.stringify({is_open:!state.admin.submissions_open})});await loadAdmin();await loadOverview();await loadProblem();}catch(err){toast(err.message);}}));
 document.addEventListener("click",async e=>{
   const b=e.target.closest("button");if(!b)return;
   try{
-    if(b.dataset.close)$(`#${b.dataset.close}`).close();if(b.dataset.tab)showTab(b.dataset.tab);if(b.dataset.authMode)authMode(b.dataset.authMode);
+    if(b.dataset.close)$(`#${b.dataset.close}`).close();if(b.dataset.tab)showTab(b.dataset.tab);
+    if(b.dataset.correctId){
+      const student=state.admin.users.find(u=>u.id===Number(b.dataset.correctId)),f=$("#identity-form");
+      f.reset();f.dataset.userId=student.id;f.elements.student_id.value=student.student_id;$("#identity-current-id").textContent=`Current ID: ${student.student_id}`;message("#identity-error","");$("#identity-dialog").showModal();
+    }
     if(b.dataset.problem)await selectProblem(b.dataset.problem);if(b.dataset.detail){await loadBoard();await showDetail(b.dataset.detail);}
     if(b.dataset.rejudge)await busy(b,async()=>{await api(`/api/admin/submissions/${b.dataset.rejudge}/rejudge`,{method:"POST"});$("#detail-dialog").close();await loadHistory();await loadBoard();toast("Rejudge queued.");});
     if(b.dataset.deleteCase&&confirm("Delete this test? This starts a new leaderboard profile."))await busy(b,async()=>{await api(`/api/admin/problems/${state.selected}/testcases/${b.dataset.deleteCase}`,{method:"DELETE"});await loadProblem();await loadBoard();toast("Test deleted.");});
   }catch(err){toast(err.message);}
 });
 async function init(){
-  I18n.use(I18n.preferred);authMode("login");updateLines();
+  I18n.use(I18n.preferred);updateLines();
   try{state.user=(await api("/api/me")).user;updateUser();await loadOverview();if(state.user?.role==="admin"&&!state.problems.length)showTab("admin");}catch(e){message("#worker-notice",e.message);}
   setInterval(async()=>{if(document.hidden||polling)return;polling=true;try{await loadOverview();await loadProblem();if(state.tab==="leaderboard")await loadBoard();if(state.tab==="history")await loadHistory();}catch{message("#worker-notice",t("connectionLost"));}finally{polling=false;}},5000);
 }

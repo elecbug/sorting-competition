@@ -1,0 +1,108 @@
+name: sorting-competition
+
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+
+x-build-args: &build-args
+  APP_UID: ${SORT_UID:-1001}
+  APP_GID: ${SORT_GID:-1001}
+
+x-judge-settings: &judge-settings
+  SORT_DATA_DIR: /data
+  SORT_CPU: ${SORT_CPU:-2}
+  SORT_REPETITIONS: ${SORT_REPETITIONS:-10}
+  SORT_TIME_LIMIT: ${SORT_TIME_LIMIT:-2.0}
+  SORT_WALL_LIMIT: ${SORT_WALL_LIMIT:-4.0}
+  SORT_MEMORY_MB: ${SORT_MEMORY_MB:-128}
+
+services:
+  web:
+    <<: *runtime
+    image: sorting-competition-web:local
+    build:
+      context: .
+      target: web
+      args: *build-args
+    environment:
+      <<: *judge-settings
+      SORT_ADMIN_PASSWORD: ${SORT_ADMIN_PASSWORD:?Run scripts/setup.py first}
+      SORT_COOKIE_SECURE: ${SORT_COOKIE_SECURE:-false}
+      SORT_HOST: 0.0.0.0
+      SORT_PORT: 8100
+    ports:
+      - "${SORT_HOST:-0.0.0.0}:${SORT_PORT:-8100}:8100"
+    volumes:
+      - type: bind
+        source: ${SORT_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, python, scripts/healthcheck.py, web]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  worker:
+    <<: *runtime
+    image: sorting-competition-worker:local
+    build:
+      context: .
+      target: worker
+      args: *build-args
+    group_add:
+      - "${SORT_DOCKER_GID:?Run scripts/setup.py to detect the Docker socket group}"
+    network_mode: none
+    stop_grace_period: 30s
+    environment:
+      <<: *judge-settings
+      SORT_JUDGE_IMAGE: ${SORT_JUDGE_IMAGE:-sorting-judge:local}
+      SORT_JOB_DIR: /jobs
+      SORT_JOB_VOLUME: ${SORT_JOB_VOLUME:-sorting-competition-jobs}
+    volumes:
+      - type: bind
+        source: ${SORT_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+      - judge-jobs:/jobs
+    depends_on:
+      web:
+        condition: service_healthy
+      judge-image:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, scripts/healthcheck.py, worker]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # Builds the sandbox image; this one-shot container never evaluates submissions.
+  judge-image:
+    image: ${SORT_JUDGE_IMAGE:-sorting-judge:local}
+    build:
+      context: .
+      dockerfile: judge/Dockerfile
+    entrypoint: [/bin/true]
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  judge-jobs:
+    name: ${SORT_JOB_VOLUME:-sorting-competition-jobs}

@@ -2,9 +2,10 @@
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import pytest
 from app.config import ROOT, Settings
-from judge.supervisor import judge_job
+from judge.supervisor import judge_job, run_child
 from judge.worker import sandbox_args
 
 
@@ -40,12 +41,21 @@ def test_wrong_order_and_compile_error(tmp_path,launcher):
     assert result["status"] == "compile_error"
 
 
+def test_wall_timeout_stops_native_parent_and_sleeping_child(tmp_path, launcher):
+    started = time.monotonic()
+    result = run_child(['/bin/sleep', '5'], b'', wall_limit=.1, cpu_limit=2,
+        memory_mb=128, output_limit=1000, work_dir=str(tmp_path), uid=None, launcher=launcher)
+    assert result['timed_out']
+    assert time.monotonic() - started < 2
+
+
 def test_container_flags_do_not_mount_answers_or_docker_socket(tmp_path):
-    settings=Settings(tmp_path,"admin-password","class-code-long")
+    settings=Settings(tmp_path,"admin-password")
     args=sandbox_args(settings,"test",str(tmp_path/"student.c"),"sha256:fixed")
     assert "--network" in args and "none" in args
     assert "--read-only" in args and "--cap-drop=ALL" in args
     assert "--security-opt=no-new-privileges" in args
+    assert "--cap-add=KILL" in args  # trusted supervisor must stop the different-UID candidate
     assert "--cpuset-cpus=2" in args and "--memory=1024m" in args
     assert args[-1]=="sha256:fixed"
     mounts=[a for a in args if a.startswith("type=bind")]

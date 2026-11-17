@@ -28,14 +28,15 @@ def sample_texts(filename, column, header, rows, columns):
 
 def main():
     parser = argparse.ArgumentParser(description="Create sample problems with generated answers and five-language statements.")
-    parser.add_argument("--directory", type=Path, default=ROOT / "data/sample_csv")
+    parser.add_argument("--directory", type=Path, default=None)
     parser.add_argument("--column", type=int, default=1, help="Primary sort column, starting at 1. Ties compare all columns from left to right.")
     args = parser.parse_args()
     settings = Settings.from_env()
+    sample_directory = args.directory or settings.data_dir / "sample_csv"
     database = Database(settings.data_dir)
     output_dir = settings.data_dir / "generated_answers"
     output_dir.mkdir(mode=0o700, exist_ok=True)
-    for source in sorted(args.directory.glob("*.csv")):
+    for source in sorted(sample_directory.glob("*.csv")):
         with source.open(encoding="utf-8-sig", newline="") as stream:
             original = stream.read()
         header, rows = parse_csv(original)

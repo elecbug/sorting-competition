@@ -8,7 +8,7 @@ def leaderboard(database, profile, problem_id):
         return []
     with database.connect() as db:
         rows = db.execute("""
-        SELECT s.id, s.user_id, s.status, s.result, s.created_at, u.nickname
+        SELECT s.id, s.user_id, s.status, s.result, s.created_at, u.nickname, u.student_id
         FROM submissions s JOIN users u ON u.id=s.user_id
         WHERE s.profile=? AND s.problem_id=? AND s.status IN ('accepted','wrong_answer','compile_error','time_limit','memory_limit','runtime_error','output_limit')
         AND u.role='student'
@@ -19,7 +19,7 @@ def leaderboard(database, profile, problem_id):
     for row in rows:
         result = json.loads(row["result"] or "{}")
         entries.append({
-            "submission_id": row["id"], "nickname": row["nickname"], "status": row["status"],
+            "submission_id": row["id"], "nickname": row["nickname"], "student_id": row["student_id"], "status": row["status"],
             "created_at": row["created_at"], "time_ms": result.get("time_ms"),
             "memory_kb": result.get("memory_kb"), "passed": result.get("passed", 0),
             "total": result.get("total", 12), "rank": None, "time_rank": None, "memory_rank": None,

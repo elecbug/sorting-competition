@@ -1,19 +1,17 @@
-from contextlib import asynccontextmanager
 import csv
-import hmac
 import io
 import json
 import secrets
-import sqlite3
 import time
 from urllib.parse import urlsplit
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth import hash_password, token_hash, verify_password
 from app.config import ROOT, Settings
@@ -59,16 +57,30 @@ class Login(Payload):
     student_id: str = Field(pattern=r"^[A-Za-z0-9_-]{3,30}$")
     password: str = Field(min_length=1, max_length=128)
 
+    @field_validator("student_id", mode="before")
+    @classmethod
+    def strip_student_id(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
-class Registration(Login):
-    password: str = Field(min_length=10, max_length=128)
-    nickname: str = Field(min_length=2, max_length=30)
-    enrollment_code: str = Field(min_length=1, max_length=128)
+
+class StudentCredentials(Login):
+    password: str = Field(min_length=4, max_length=128)
+
+
+class IdentityCorrection(StudentCredentials):
+    pass
 
 
 class Submission(Payload):
     problem_id: int
     source: str = Field(min_length=1, max_length=65536)
+    student_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{3,30}$")
+    password: str | None = Field(default=None, min_length=4, max_length=128)
+
+    @field_validator("student_id", mode="before")
+    @classmethod
+    def strip_student_id(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class ProblemTranslation(Payload):
@@ -128,6 +140,8 @@ def worker_status(database):
 
 def create_app(settings=None):
     settings = settings or Settings.from_env()
+    if not settings.admin_password:
+        raise RuntimeError("Set SORT_ADMIN_PASSWORD in .env or run scripts/setup.py.")
     database = Database(settings.data_dir)
     with database.connect() as db:
         admin = db.execute("SELECT * FROM users WHERE student_id='admin'").fetchone()
@@ -138,12 +152,18 @@ def create_app(settings=None):
             db.execute("DELETE FROM sessions WHERE user_id=?", (admin["id"],))
         db.execute("UPDATE users SET nickname='Administrator' WHERE student_id='admin'")
     dummy_password = hash_password(secrets.token_urlsafe(20))
-    app = FastAPI(title="SORT / CSV Sorting Arena", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Sorting Competition", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db = database
     app.state.settings = settings
     app.add_middleware(BodyLimit)
     app.mount("/static", StaticFiles(directory=ROOT / "app/static"), name="static")
     templates = Environment(loader=FileSystemLoader(ROOT / "app/templates"), autoescape=select_autoescape())
+
+    @app.exception_handler(RequestValidationError)
+    def validation_error(request, error):
+        # Pydantic's default error body echoes input, including personal passwords.
+        details = [{key:item[key] for key in ("type", "loc", "msg")} for item in error.errors()]
+        return JSONResponse({"detail": details}, status_code=422)
 
     @app.middleware("http")
     async def security(request, call_next):
@@ -174,6 +194,20 @@ def create_app(settings=None):
     def profile_for(problem_id):
         return current_profile(database, problem_id)
 
+    def limit_student_attempts(request, student_id):
+        ip = request.client.host if request.client else "unknown"
+        if not database.rate_limit(f"student-ip:{ip}", 300, 60) or not database.rate_limit(f"student-id:{student_id}", 30, 300):
+            raise HTTPException(429, "Too many verification attempts. Try again in 5 minutes.")
+
+    def session_response(user, request, content, status_code=200):
+        token = secrets.token_urlsafe(32)
+        with database.connect() as db:
+            db.execute("DELETE FROM sessions WHERE expires_at<? OR token_hash=?", (time.time(), token_hash(request.cookies.get("sorting_session", ""))))
+            db.execute("INSERT INTO sessions VALUES (?,?,?)", (token_hash(token), user["id"], time.time() + 43200))
+        response = JSONResponse({**content, "user": public_user(user)}, status_code=status_code)
+        response.set_cookie("sorting_session", token, httponly=True, secure=settings.cookie_secure, samesite="strict", max_age=43200)
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     def home():
         return templates.get_template("index.html").render()
@@ -187,23 +221,6 @@ def create_app(settings=None):
     def me(user=Depends(current_user)):
         return {"user": public_user(user)}
 
-    @app.post("/api/register", status_code=201)
-    def register(payload: Registration, request: Request):
-        ip = request.client.host if request.client else "unknown"
-        if not database.rate_limit(f"register:{ip}", 10, 3600):
-            raise HTTPException(429, "Too many registration attempts. Try again later.")
-        if not hmac.compare_digest(payload.enrollment_code.encode(), settings.enrollment_code.encode()):
-            raise HTTPException(400, "Invalid class code.")
-        nickname = payload.nickname.strip()
-        if len(nickname) < 2:
-            raise HTTPException(400, "Display name must contain at least 2 characters.")
-        try:
-            with database.connect() as db:
-                db.execute("INSERT INTO users(student_id,nickname,password,created_at) VALUES (?,?,?,?)", (payload.student_id, nickname, hash_password(payload.password), time.time()))
-        except sqlite3.IntegrityError:
-            raise HTTPException(409, "This student ID is already registered.")
-        return {"ok": True}
-
     @app.post("/api/login")
     def login(payload: Login, request: Request):
         ip = request.client.host if request.client else "unknown"
@@ -211,16 +228,18 @@ def create_app(settings=None):
             raise HTTPException(429, "Too many sign-in attempts. Try again in 5 minutes.")
         with database.connect() as db:
             user = db.execute("SELECT * FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
-        if not verify_password(payload.password, user["password"] if user else dummy_password) or not user:
+        if not verify_password(payload.password, user["password"] if user else dummy_password) or not user or user["role"] != "admin":
             raise HTTPException(401, "Incorrect student ID or password.")
-        token = secrets.token_urlsafe(32)
-        lifetime = 43200 if user["role"] == "admin" else 604800
+        return session_response(user, request, {})
+
+    @app.post("/api/student/session")
+    def student_session(payload: StudentCredentials, request: Request):
+        limit_student_attempts(request, payload.student_id)
         with database.connect() as db:
-            db.execute("DELETE FROM sessions WHERE expires_at<? OR token_hash=?", (time.time(), token_hash(request.cookies.get("sorting_session", ""))))
-            db.execute("INSERT INTO sessions VALUES (?,?,?)", (token_hash(token), user["id"], time.time() + lifetime))
-        response = JSONResponse({"user": public_user(user)})
-        response.set_cookie("sorting_session", token, httponly=True, secure=settings.cookie_secure, samesite="strict", max_age=lifetime)
-        return response
+            user = db.execute("SELECT * FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
+        if not verify_password(payload.password, user["password"] if user else dummy_password) or not user or user["role"] != "student":
+            raise HTTPException(401, "Student ID or personal password is incorrect.")
+        return session_response(user, request, {})
 
     @app.post("/api/logout")
     def logout(request: Request):
@@ -261,13 +280,12 @@ def create_app(settings=None):
     def ranks_csv(problem_id: int, user=Depends(require_admin)):
         problem_or_404(problem_id)
         output = io.StringIO(newline="")
-        fields = ["rank", "nickname", "score", "correctness_score", "time_score", "memory_score", "time_ms", "memory_kb", "time_rank", "memory_rank", "status", "submission_id"]
+        fields = ["rank", "student_id", "score", "correctness_score", "time_score", "memory_score", "time_ms", "memory_kb", "time_rank", "memory_rank", "status", "submission_id"]
         writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         for entry in leaderboard(database, profile_for(problem_id), problem_id):
-            # Spreadsheet formula injection protection for student-controlled names.
-            if entry["nickname"].lstrip().startswith(("=", "+", "-", "@")):
-                entry["nickname"] = "'" + entry["nickname"]
+            if entry["student_id"].startswith(("=", "+", "-", "@")):
+                entry["student_id"] = "'" + entry["student_id"]
             writer.writerow(entry)
         return Response("\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="leaderboard-{problem_id}.csv"'})
 
@@ -286,11 +304,25 @@ def create_app(settings=None):
         return FileResponse(ROOT / "examples" / filename, filename=filename, media_type="text/plain")
 
     @app.post("/api/submissions", status_code=201)
-    def submit(payload: Submission, user=Depends(require_user)):
+    def submit(payload: Submission, request: Request, user=Depends(current_user)):
         if len(payload.source.encode()) > 65536:
             raise HTTPException(400, "Source code must not exceed 64 KiB in UTF-8.")
+        as_admin = user and user["role"] == "admin" and payload.student_id is None and payload.password is None
+        if not as_admin:
+            if payload.student_id is None or payload.password is None:
+                raise HTTPException(400, "Enter your student ID and personal password.")
+            limit_student_attempts(request, payload.student_id)
         with database.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if not as_admin:
+                existing = db.execute("SELECT * FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
+                if existing:
+                    if not verify_password(payload.password, existing["password"]) or existing["role"] != "student":
+                        raise HTTPException(401, "This student ID uses a different personal password. Check your ID or contact the instructor.")
+                    user = dict(existing)
+                else:
+                    cursor = db.execute("INSERT INTO users(student_id,nickname,password,created_at) VALUES (?,?,?,?)", (payload.student_id, payload.student_id, hash_password(payload.password), time.time()))
+                    user = dict(db.execute("SELECT * FROM users WHERE id=?", (cursor.lastrowid,)).fetchone())
             problem = db.execute("SELECT * FROM problems WHERE id=?", (payload.problem_id,)).fetchone()
             opened = json.loads(db.execute("SELECT value FROM metadata WHERE key='submissions_open'").fetchone()[0])
             if not problem or not problem["is_open"] or not opened:
@@ -307,7 +339,7 @@ def create_app(settings=None):
                 raise HTTPException(429, "The judge queue is full. Try again later.")
             cursor = db.execute("INSERT INTO submissions(user_id,problem_id,source,created_at) VALUES (?,?,?,?)", (user["id"], payload.problem_id, payload.source, time.time()))
             submission_id = cursor.lastrowid
-        return {"id": submission_id, "status": "queued"}
+        return session_response(user, request, {"id": submission_id, "status": "queued"}, status_code=201)
 
     @app.get("/api/submissions")
     def submissions(problem_id: int | None = None, user=Depends(require_user)):
@@ -320,7 +352,7 @@ def create_app(settings=None):
             params.append(problem_id)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         with database.connect() as db:
-            rows = db.execute("SELECT s.id,s.problem_id,s.status,s.created_at,s.finished_at,s.profile,s.result,u.nickname FROM submissions s JOIN users u ON u.id=s.user_id" + where + " ORDER BY s.id DESC LIMIT 100", params).fetchall()
+            rows = db.execute("SELECT s.id,s.problem_id,s.status,s.created_at,s.finished_at,s.profile,s.result,u.student_id FROM submissions s JOIN users u ON u.id=s.user_id" + where + " ORDER BY s.id DESC LIMIT 100", params).fetchall()
         return {"submissions": [{**dict(r), "result": json.loads(r["result"]) if r["result"] else None} for r in rows]}
 
     @app.get("/api/submissions/{submission_id}")
@@ -334,8 +366,27 @@ def create_app(settings=None):
     @app.get("/api/admin/settings")
     def admin_settings(user=Depends(require_admin)):
         with database.connect() as db:
-            users = [dict(r) for r in db.execute("SELECT student_id,nickname,created_at FROM users WHERE role='student' ORDER BY created_at DESC LIMIT 500")]
-        return {"enrollment_code": settings.enrollment_code, "submissions_open": database.get_meta("submissions_open", True), "users": users, "worker": worker_status(database)}
+            users = [dict(r) for r in db.execute("SELECT id,student_id,created_at FROM users WHERE role='student' ORDER BY created_at DESC LIMIT 500")]
+        return {"submissions_open": database.get_meta("submissions_open", True), "users": users, "worker": worker_status(database)}
+
+    @app.patch("/api/admin/students/{student_user_id}")
+    def correct_student_id(student_user_id: int, payload: IdentityCorrection, admin=Depends(require_admin)):
+        if not database.rate_limit(f"identity-check:{admin['id']}:{student_user_id}", 15, 300):
+            raise HTTPException(429, "Too many verification attempts. Try again in 5 minutes.")
+        with database.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            student = db.execute("SELECT * FROM users WHERE id=? AND role='student'", (student_user_id,)).fetchone()
+            if not student:
+                raise HTTPException(404, "Student not found.")
+            if not verify_password(payload.password, student["password"]):
+                raise HTTPException(401, "Personal password did not match. Student ID was not changed.")
+            if db.execute("SELECT 1 FROM users WHERE student_id=? AND id!=?", (payload.student_id, student_user_id)).fetchone():
+                raise HTTPException(409, "The corrected student ID is already in use. No records were merged.")
+            if student["student_id"] != payload.student_id:
+                db.execute("UPDATE users SET student_id=?,nickname=? WHERE id=?", (payload.student_id, payload.student_id, student_user_id))
+                db.execute("DELETE FROM sessions WHERE user_id=?", (student_user_id,))
+                db.execute("INSERT INTO identity_events(user_id,admin_id,old_student_id,new_student_id,created_at) VALUES (?,?,?,?,?)", (student_user_id, admin["id"], student["student_id"], payload.student_id, time.time()))
+        return {"ok": True, "student_id": payload.student_id}
 
     @app.post("/api/admin/submissions-open")
     def toggle_open(payload: OpenPayload, user=Depends(require_admin)):

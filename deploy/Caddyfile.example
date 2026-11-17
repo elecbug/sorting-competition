@@ -1,4 +1,4 @@
-# 도메인을 실제 서버 DNS에 연결한 뒤 사용하세요.
+# Connect this hostname to the server before using this configuration.
 sort.example.edu {
     request_body {
         max_size 80MB
