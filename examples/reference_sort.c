@@ -3,12 +3,19 @@
 #ifndef SORT_COLUMN
 #define SORT_COLUMN (-1)
 #endif
+#ifndef SORT_SECONDARY_COLUMN
+#define SORT_SECONDARY_COLUMN (-1)
+#endif
 static int text_compare(const char *a, const char *b) {
     while (*a && (unsigned char)*a == (unsigned char)*b) { ++a; ++b; }
     return (unsigned char)*a - (unsigned char)*b;
 }
 static int compare_rows(const row *a, const row *b) {
-    if (SORT_COLUMN >= 0) return text_compare(a->data[SORT_COLUMN].text, b->data[SORT_COLUMN].text);
+    if (SORT_COLUMN >= 0) {
+        int result = text_compare(a->data[SORT_COLUMN].text, b->data[SORT_COLUMN].text);
+        if (result || SORT_SECONDARY_COLUMN < 0) return result;
+        return text_compare(a->data[SORT_SECONDARY_COLUMN].text, b->data[SORT_SECONDARY_COLUMN].text);
+    }
     for (size_t c=0;c<a->count;c++) { int r=text_compare(a->data[c].text,b->data[c].text); if(r)return r; }
     return 0;
 }

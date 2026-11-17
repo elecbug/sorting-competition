@@ -23,7 +23,7 @@ def test_scores_and_profiles(app, problem):
     database, profile = seed(app, problem)
     results = leaderboard(database,profile,problem)
     assert results[0]["score"] == 100
-    assert results[1]["time_rank"] == 1
+    assert results[1]["time_rank"] == 2
     assert results[1]["memory_rank"] == 1
     assert results[2]["score"] < results[1]["score"]
     assert leaderboard(database,"changed-profile",problem) == []

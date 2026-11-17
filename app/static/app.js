@@ -33,7 +33,6 @@ function updateUser(){
   $("#student-identity").hidden=admin;
   $("#student-history-form").hidden=!!state.user;
   if(admin)$("#problem-form-title").textContent=t(state.newProblem?"newProblem":"editProblem");
-  if(state.user?.role==="student"&&!$("#submit-student-id").value)$("#submit-student-id").value=state.user.student_id;
   if(state.tab==="admin"&&!admin)showTab("problem");
 }
 function clearIdentityContext(){
@@ -74,7 +73,7 @@ async function loadProblem(fillForm=false){
   const publicCases=p.testcases.filter(c=>c.is_public),privateCount=p.testcases.length-publicCases.length;
   $("#dataset-list").innerHTML=publicCases.map(c=>`<div class="dataset-row"><span class="file-icon">CSV</span><div class="dataset-info"><strong>${esc(c.title)}</strong><small>${t("dataSize",{rows:number(c.row_count,0),columns:c.column_count})}</small></div><a href="/api/problems/${id}/testcases/${c.id}/input.csv" aria-label="${esc(t("downloadInput"))}">↓</a></div>`).join("")+(privateCount?`<p class="footnote">${t("privateTests",{count:privateCount})}</p>`:"")+(!p.testcases.length?`<p class="muted">${t("waitingData")}</p>`:"");
   $("#score-weights").textContent=t(p.scoring_mode==="memory"?"memoryWeights":p.scoring_mode==="time"?"timeWeights":"scoreWeights");
-  $("#ranking-policy").textContent=t(p.scoring_mode==="balanced"?"rankingPolicy":"modeRankingPolicy");
+  $("#ranking-policy").textContent=t(p.scoring_mode==="balanced"?"rankingPolicy":p.scoring_mode==="memory"?"memoryRankingPolicy":"modeRankingPolicy");
   if(state.user?.role==="admin"){renderAdminCases();if(fillForm)fillProblemForm(p);}
 }
 async function loadBoard(){
@@ -165,7 +164,7 @@ $("#student-history-form").addEventListener("submit",async e=>{
   e.preventDefault();const f=e.target;
   await busy(f.querySelector('[type="submit"]'),async()=>{try{
     const r=await api("/api/student/session",{method:"POST",body:JSON.stringify({student_id:f.elements.student_id.value.trim(),password:f.elements.password.value})});
-    state.user=r.user;$("#submit-student-id").value=r.user.student_id;f.elements.password.value="";message("#history-error","");updateUser();await loadHistory();
+    state.user=r.user;$("#submit-student-id").value=f.elements.student_id.value.trim();f.elements.password.value="";message("#history-error","");updateUser();await loadHistory();
   }catch(err){message("#history-error",err.message);}});
 });
 $("#identity-form").addEventListener("submit",async e=>{

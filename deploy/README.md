@@ -95,18 +95,24 @@ Run the configured warm-ups, then N measured fresh processes, sort the CPU sampl
 
 A profile includes sandbox image, boot ID, CPU, limits, repetitions, warm-ups, trimming, and settling. A host reboot or changed profile requires rejudging. Accepted measurements are canonical per stripped executable hash/profile, with source-hash aliases for exact repeats. Clearing student submissions resets these caches. Job tokens and monotonically increasing submission IDs prevent an interrupted old job from updating a later submission after deletion.
 
-Scoring modes: balanced 60 correctness / 30 time / 10 memory; time-priority 60 / 40 / 0; memory-priority 60 / 0 / 40. All tests must pass for a rank. Focused modes rank their selected metric. Time tolerance is 1%; memory tolerance is 64 KiB for memory-priority assignments and 1 MiB otherwise. Results in the same tolerance group receive equal component points.
+Scoring modes: balanced 60 correctness / 30 time / 10 memory; time-priority 60 / 40 / 0; memory-priority 60 / 0 / 40. All tests must pass for a rank. Time-priority ranks CPU time. Memory-priority ranks Peak RSS first and CPU time second when memory is equal. Time and memory-priority tolerances are zero; other memory comparisons allow 1 MiB. Results in the same tolerance group receive equal component points.
 
 The judge image now installs libclang for source policy checking, so rebuild **all services including judge-image** after upgrading. Only explicit standard I/O and allocation APIs are allowed; the exact allowlist is in `judge/policy.py`. Syntax and object-symbol validation are complementary checks for the supported C subset, not a proof about arbitrary self-modifying machine code. Candidates cannot use inline assembly, assembler aliases, location spoofing, or unresolved indirect function calls.
 
 ## Applying the prepared course set
 
-`data/pending_problem_set.json` refers to private generated input/answer files. At the next updated web startup, the application validates them, takes a SQLite backup, removes the listed old sample problems and their sample submissions, and creates three unpublished assignments. Original source CSVs, student identities, and unrelated problems are retained. Each manifest revision is applied once; subsequent revisions update the same managed problem and case IDs, preserving publication/submission settings and student submissions. Changed test data invalidates the relevant measurement profile. No live database replacement is performed while an older server image that does not enforce publication is running.
+`data/pending_problem_set.json` refers to private generated input/answer files. At the next updated web startup, the application validates them, takes a SQLite backup, removes the listed old sample problems and their sample submissions, and installs the prepared assignments with their specified publication status. Original source CSVs, student identities, and unrelated problems are retained. Each manifest revision is applied once; subsequent revisions update the same managed problem and case IDs, preserving publication/submission settings and student submissions. Changed test data invalidates the relevant measurement profile. No live database replacement is performed while an older server image that does not enforce publication is running.
 
 ```bash
 sudo docker compose up -d --build
 ```
 
-Then sign in as administrator and enable **Published to students** when ready. Changing the checkbox on an existing problem takes effect immediately; it is separate from submission closure. An unpublished problem and its input/history/ranking routes return no student-visible content. Administrators can still inspect it.
+The current two-problem course set starts published. Administrators can change **Published to students** at any time. Changing the checkbox on an existing problem takes effect immediately; it is separate from submission closure. An unpublished problem and its input/history/ranking routes return no student-visible content. Administrators can still inspect it.
 
 All supported UI languages are now available while signed in as administrator; server logs and API messages continue to use English. **Clear student submissions** previews the count and requires confirmation, deletes only student code/results/queue entries, retains IDs/passwords and assignment data, and stops matching active jobs. The feature is not executed automatically by an update.
+
+## Course reset and student identifier display
+
+`python3 scripts/prepare_course_pair.py --reset-students` prepares a two-problem replacement with a one-time reset token. Inspect and verify the prepared CSVs before running the same command with `--apply`. Applying backs up SQLite, removes the listed previous problems, clears all submissions and benchmark caches, removes student users/sessions and identity-correction records, and retains administrator users. The reset token prevents later manifest edits from clearing new students again. Source CSV files remain available.
+
+Student and anonymous API views mask identifiers as the first two characters, stars, and the last two characters. Lengths up to four show stars only. Administrator views and exports contain full identifiers. Enter actual identifiers in verification forms; masked response values are never copied into submission inputs.

@@ -35,7 +35,7 @@ def test_first_submission_needs_no_account(app, client, problem):
     response = submit_student(client, problem)
     assert response.status_code == 201, response.text
     assert response.json()['status'] == 'queued'
-    assert response.json()['user']['student_id'] == '20260001'
+    assert response.json()['user']['student_id'] == '20****01'
     assert response.json()['user']['role'] == 'student'
     assert 'httponly' in response.headers['set-cookie'].lower()
     assert 'samesite=strict' in response.headers['set-cookie'].lower()
@@ -131,7 +131,7 @@ def test_existing_student_credentials_are_preserved(app, client, problem):
     response = submit_student(client, problem, '00123456', 'old-student-pass')
     assert response.status_code == 201
     assert response.json()['user']['id'] == uid
-    assert response.json()['user']['student_id'] == '00123456'
+    assert response.json()['user']['student_id'] == '00****56'
     assert submit_student(client, problem, 'admin', '1234').status_code == 401
 
 

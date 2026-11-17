@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.auth import hash_password, token_hash, verify_password
 from app.config import ROOT, Settings
 from app.db import Database
+from app.privacy import student_identity
 from app.scoring import leaderboard
 from judge.datasets import validate_pair
 from judge.profile import case_digest, current_profile
@@ -138,7 +139,9 @@ def require_admin(user=Depends(require_user)):
 
 
 def public_user(user):
-    return {k: user[k] for k in ("id", "student_id", "nickname", "role")} if user else None
+    if not user:
+        return None
+    return student_identity({k: user[k] for k in ("id", "student_id", "nickname", "role")}, admin=user["role"] == "admin")
 
 
 def worker_status(database):
@@ -286,7 +289,8 @@ def create_app(settings=None):
     def ranks(problem_id: int, user=Depends(current_user)):
         problem = problem_or_404(problem_id, user)
         profile = profile_for(problem_id)
-        return {"entries": leaderboard(database, profile, problem_id), "profile": profile, "scoring_mode": problem["scoring_mode"]}
+        entries = leaderboard(database, profile, problem_id)
+        return {"entries": [student_identity(entry, admin=bool(user and user["role"] == "admin")) for entry in entries], "profile": profile, "scoring_mode": problem["scoring_mode"]}
 
     @app.get("/api/problems/{problem_id}/leaderboard.csv")
     def ranks_csv(problem_id: int, user=Depends(require_admin)):
@@ -370,7 +374,7 @@ def create_app(settings=None):
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         with database.connect() as db:
             rows = db.execute("SELECT s.id,s.problem_id,s.status,s.created_at,s.finished_at,s.profile,s.result,u.student_id FROM submissions s JOIN users u ON u.id=s.user_id" + where + " ORDER BY s.id DESC LIMIT 100", params).fetchall()
-        return {"submissions": [{**dict(r), "result": json.loads(r["result"]) if r["result"] else None} for r in rows]}
+        return {"submissions": [student_identity({**dict(r), "result": json.loads(r["result"]) if r["result"] else None}, admin=user["role"] == "admin") for r in rows]}
 
     @app.get("/api/submissions/{submission_id}")
     def submission_detail(submission_id: int, user=Depends(require_user)):

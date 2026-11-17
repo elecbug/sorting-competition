@@ -46,9 +46,17 @@ def leaderboard(database, profile, problem_id):
         e["memory_score"] = round((40 if mode == "memory" else 0 if mode == "time" else 10)*best_memory/max(memories[e["memory_rank"]],1),2)
         e["score"] = round(e["correctness_score"]+e["time_score"]+e["memory_score"],2)
     assign_ranks(accepted, "score", "rank", descending=True, absolute=.1)
-    if mode != "balanced":
+    if mode == "memory":
+        ordered = sorted(accepted, key=lambda entry: (entry["memory_rank"], entry["time_rank"]))
+        previous, rank = None, 0
+        for position, entry in enumerate(ordered, 1):
+            priority = (entry["memory_rank"], entry["time_rank"])
+            if priority != previous:
+                previous, rank = priority, position
+            entry["rank"] = rank
+    elif mode == "time":
         for entry in accepted:
-            entry["rank"] = entry["memory_rank" if mode == "memory" else "time_rank"]
+            entry["rank"] = entry["time_rank"]
     return sorted(entries, key=lambda e: (e["rank"] is None, e["rank"] or 0, -e["score"], e["created_at"]))
 
 

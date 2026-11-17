@@ -44,6 +44,19 @@ def install_pending(database, data_dir):
         installed = db.execute("SELECT value FROM metadata WHERE key='installed_problem_set'").fetchone()
         if installed and json.loads(installed[0]) == signature:
             return
+        reset_token = manifest.get("reset_students_token")
+        previous_resets = db.execute("SELECT value FROM metadata WHERE key='applied_student_resets'").fetchone()
+        resets = json.loads(previous_resets[0]) if previous_resets else []
+        if reset_token and reset_token not in resets:
+            db.execute("DELETE FROM submissions")
+            db.execute("DELETE FROM identity_events")
+            db.execute("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role='student')")
+            db.execute("DELETE FROM users WHERE role='student'")
+            db.execute("DELETE FROM benchmark_sources")
+            db.execute("DELETE FROM benchmark_cache")
+            db.execute("DELETE FROM rate_limits")
+            resets.append(reset_token)
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('applied_student_resets',?)", (json.dumps(resets),))
         previous = db.execute("SELECT value FROM metadata WHERE key='installed_problem_set_members'").fetchone()
         previous = json.loads(previous[0]) if previous else {}
         members = previous.get("ids", {}) if previous.get("family") == family else {}

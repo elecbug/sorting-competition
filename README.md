@@ -69,14 +69,15 @@ Instructors can edit problem titles and statements in each language. Missing tra
 
 ## Course data and development
 
-The provided originals in `data/sample_csv/` are preserved. Prepare the three course assignments and apply them on the next updated web startup:
+The provided originals in `data/sample_csv/` are preserved. Prepare the two course assignments, then apply the prepared set:
 
 ```bash
-python3 scripts/prepare_course_problems.py
+python3 scripts/prepare_course_pair.py
+python3 scripts/prepare_course_pair.py --apply
 docker compose up -d --build
 ```
 
-Each assignment has a public input, a larger private input with withheld rows, and a smaller private case. Answers remain private. Use input/answer CSV pairs for additional instructor-created assignments. See [deploy/README.md](deploy/README.md) for storage, migration, isolation, and backups.
+Each assignment has a public input, a larger private input with withheld rows, and smaller private cases. Answers remain private. Use input/answer CSV pairs for additional instructor-created assignments. See [deploy/README.md](deploy/README.md) for storage, migration, isolation, and backups.
 
 For host development only:
 
@@ -87,16 +88,18 @@ uv sync --frozen
 .venv/bin/python -m pytest -q
 node --check app/static/app.js
 node --check app/static/i18n.js
-.venv/bin/python scripts/verify_course_problems.py  # only repository-authored references
+.venv/bin/python scripts/verify_course_problems.py  # repository-authored reference validation
 ```
 
 Tests cover registration-free submissions, private passwords and history, simultaneous first submissions, ID corrections, CSV validation, scoring, languages, Compose separation, and worker cancellation/recovery. Actual container execution requires Docker daemon access and built images.
 
 ## Prepared assignments and publication
 
-Run `python3 scripts/prepare_course_problems.py` on the host (or the same script inside the web container) to prepare three assignments from `data/sample_csv`. On the next web startup, the validated pending set replaces only the previous `[Sample]` problems. The database is backed up first under `data/backups`; original CSV files and student credentials are preserved. Each manifest revision runs once, atomically. Later revisions update the same managed problems while preserving publication status and submissions. New assignments start unpublished.
+Run `python3 scripts/prepare_course_pair.py` on the host to prepare two assignments from `data/sample_csv`. `--apply` installs the prepared set atomically after a SQLite backup under `data/backups`. Each manifest revision runs once and updates the same managed problem IDs. Add `--reset-students` while preparing a new set only when intentionally removing student identities, sessions, and all submissions. That reset is recorded separately and will not repeat after later statement edits. The administrator account is preserved.
 
-The assignments cover district records with an input-order requirement (column 2, memory priority), facility indexing (column 1, time priority), and equipment exports (column 2, time priority). Statements specify the required output and grading objective without naming an algorithm or spelling out optimization clues. Instructors can inspect private generation metadata; students see only published problem content and public inputs.
+Both assignments retain the signal-register records and add a unique `record_key` as column 35. The first uses shuffled inputs and requires column 2 ascending, then column 35 ascending for equal values; CPU time determines performance ranking. The second sorts column 35 and ranks lower Peak RSS first, then lower CPU time for equal memory usage. Memory points are based on RSS; time breaks ranking ties. Statements describe the output without naming algorithms.
+
+Student-facing API responses, account labels, histories, and leaderboards show only the first two and last two identifier characters, masking the middle. Identifiers of four or fewer characters are entirely masked. Nicknames cannot reveal the full identifier. Administrators and administrator CSV exports retain the full identifiers. Verification forms use the actual entered identifier.
 
 Administrators can change the UI language, toggle **Published to students** independently from **Accept submissions**, and clear student submissions with a confirmation showing the affected count. Clearing keeps student IDs/passwords, problems, and CSVs; it also clears benchmark caches and cancels active student jobs safely. Unpublished problems are unavailable through student lists, direct URLs, downloads, rankings, or submission history.
 
@@ -106,6 +109,6 @@ Only the allowed standard I/O and allocation functions may be referenced. Compar
 
 CPU measurements use warm-up runs followed by N independent processes, discard the configured fraction at both ends, and average the retained observations. With N=100 and a 10% trim, 80 observations remain. `SORT_WARMUP_RUNS`, `SORT_TRIM_FRACTION`, and `SORT_SETTLE_SECONDS` configure preparation; repetitions support 3–100. The sandbox is pinned to one CPU with a one-CPU quota, fixed memory/swap limits, and sequential execution.
 
-The same stripped executable and test/environment profile share one canonical accepted measurement. Exact-source repeats can reuse it before compilation. Comments and formatting that compile to the same executable therefore receive the same measurements. Close results share performance points as well as rank. Memory-priority problems use a 64 KiB tolerance; other memory rankings use 1 MiB, and time uses 1%. These measures reduce variation; CPU affinity alone does not eliminate interference from other host workloads.
+The same stripped executable and test/environment profile share one canonical accepted measurement. Exact-source repeats can reuse it before compilation. Comments and formatting that compile to the same executable therefore receive the same measurements. Close results share performance points as well as rank. Current time and memory-priority comparisons use zero tolerance. Other memory rankings use 1 MiB; balanced total-score ranks use 0.1 points. These measures reduce variation; CPU affinity alone does not eliminate interference from other host workloads.
 
 Wrong-answer reports describe only invalid output, changed rows, header changes, or incorrect row/tie order. They do not reveal private expected values or mismatch locations.

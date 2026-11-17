@@ -20,13 +20,16 @@ for problem in manifest['problems']:
     for index,case in enumerate(problem['cases'],1):
         cases.append({'id':index,'title':case['title'],'input_csv':(settings.data_dir/case['input_file']).read_bytes().decode(),'answer_csv':(settings.data_dir/case['answer_file']).read_bytes().decode()})
     implementations=[('merge','reference_sort.c')]
-    if problem['source'].startswith('전국무인'):implementations.append(('radix','reference_radix.c'))
+    if problem.get('source','').startswith('전국무인'):implementations.append(('radix','reference_radix.c'))
     for algorithm,filename in implementations:
         with tempfile.TemporaryDirectory(prefix='course-reference-') as directory:
             launch=str(Path(directory)/'launch')
             subprocess.run(['gcc','-O2','-std=c11',str(ROOT/'judge/launch.c'),'-o',launch],check=True)
             source=Path(directory)/'reference.c'
-            source.write_text(f"#define SORT_COLUMN {problem['column']-1}\n"+(ROOT/'examples'/filename).read_text())
+            macros=f"#define SORT_COLUMN {problem['column']-1}\n"
+            if problem.get('secondary_column'):
+                macros+=f"#define SORT_SECONDARY_COLUMN {problem['secondary_column']-1}\n"
+            source.write_text(macros+(ROOT/'examples'/filename).read_text())
             result=judge_job({'cases':cases,'repetitions':10,'warmup_runs':3,'trim_fraction':.1,'settle_seconds':.2,'time_limit':settings.time_limit,'wall_limit':settings.wall_limit,'memory_mb':settings.memory_mb},source_path=str(source),work_dir=directory,harness=str(ROOT/'judge/harness.c'),include=str(ROOT/'examples'),uid=None,launcher=launch)
             item={'title':problem['title'],'algorithm':algorithm,'status':result['status'],'passed':result.get('passed'),'total':result.get('total'),'time_ms':result.get('time_ms'),'memory_kb':result.get('memory_kb')}
             report.append(item);print(json.dumps(item),flush=True)
