@@ -61,3 +61,16 @@ def test_container_flags_do_not_mount_answers_or_docker_socket(tmp_path):
     mounts=[a for a in args if a.startswith("type=bind")]
     assert len(mounts)==1 and "student.c" in mounts[0]
     assert "docker.sock" not in " ".join(args)
+
+
+@pytest.mark.parametrize('body,header',[('qsort(table->rows,table->count,sizeof(row),0);','stdlib.h'),('(void)strcmp("a","b");','string.h'),('(void)__builtin_strlen("abc");','stdlib.h'),('(void)rand();','stdlib.h')])
+def test_forbidden_library_use_is_rejected_before_execution(tmp_path,launcher,body,header):
+    source=f'#include "csv_sort.h"\n#include <{header}>\nvoid student_sort(rows *table){{{body}}}'
+    result=run_fixture(tmp_path,launcher,source)
+    assert result['status']=='compile_error'
+    assert 'Disallowed' in result['message'] or 'policy' in result['message']
+
+
+def test_helper_functions_allocations_and_io_are_allowed(tmp_path,launcher):
+    source='#include "csv_sort.h"\n#include <stdlib.h>\n#include <stdio.h>\nstatic int own_compare(char*a,char*b){return (unsigned char)*a-(unsigned char)*b;}\nvoid student_sort(rows*t){void*p=malloc(8);free(p);fprintf(stderr,"debug");if(t->count==2&&own_compare(t->rows[0].data[0].text,t->rows[1].data[0].text)>0){row r=t->rows[0];t->rows[0]=t->rows[1];t->rows[1]=r;}}'
+    assert run_fixture(tmp_path,launcher,source)['status']=='accepted'

@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS problems (
  id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
- is_open INTEGER NOT NULL DEFAULT 1, translations TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL
+ is_open INTEGER NOT NULL DEFAULT 1, is_published INTEGER NOT NULL DEFAULT 1,
+ scoring_mode TEXT NOT NULL DEFAULT 'balanced', translations TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS testcases (
  id INTEGER PRIMARY KEY, problem_id INTEGER NOT NULL REFERENCES problems(id), title TEXT NOT NULL,
@@ -51,7 +52,23 @@ class Database:
             columns = {row[1] for row in db.execute("PRAGMA table_info(problems)")}
             if "translations" not in columns:
                 db.execute("ALTER TABLE problems ADD COLUMN translations TEXT NOT NULL DEFAULT '{}'")
+            if "is_published" not in columns:
+                db.execute("ALTER TABLE problems ADD COLUMN is_published INTEGER NOT NULL DEFAULT 1")
+            if "scoring_mode" not in columns:
+                db.execute("ALTER TABLE problems ADD COLUMN scoring_mode TEXT NOT NULL DEFAULT 'balanced'")
+            submission_columns = {row[1] for row in db.execute("PRAGMA table_info(submissions)")}
+            if "judge_token" not in submission_columns:
+                db.execute("ALTER TABLE submissions ADD COLUMN judge_token TEXT")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submissions_open', 'true')")
+            db.execute("INSERT OR IGNORE INTO metadata VALUES ('submission_high_watermark', (SELECT CAST(COALESCE(MAX(id),0) AS TEXT) FROM submissions))")
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS benchmark_cache (
+              profile TEXT NOT NULL, binary_hash TEXT NOT NULL, result TEXT NOT NULL,
+              PRIMARY KEY(profile,binary_hash));
+            CREATE TABLE IF NOT EXISTS benchmark_sources (
+              profile TEXT NOT NULL, source_hash TEXT NOT NULL, binary_hash TEXT NOT NULL,
+              PRIMARY KEY(profile,source_hash));
+            """)
         self.path.chmod(0o600)
 
     @contextmanager

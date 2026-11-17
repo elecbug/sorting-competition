@@ -2,6 +2,56 @@
 // English is the source language. Each entry: en, ko, zh, vi, ru.
 const SORT_LOCALES = ["en", "ko", "zh", "vi", "ru"];
 const SORT_MESSAGES = {
+  administration:["Administration","관리","管理","Quản lý","Управление"],
+  administrator:["Administrator","관리자","管理员","Quản trị viên","Администратор"],
+  newProblem:["New problem","새 문제","新建题目","Bài mới","Новая задача"],
+  editProblem:["Edit selected problem","선택한 문제 수정","编辑所选题目","Sửa bài đã chọn","Изменить задачу"],
+  contentLanguage:["Content language","문제 설명 언어","题目语言","Ngôn ngữ đề bài","Язык условия"],
+  title:["Title","제목","标题","Tiêu đề","Название"],
+  description:["Description","설명","说明","Mô tả","Описание"],
+  saveProblem:["Save problem","문제 저장","保存题目","Lưu bài","Сохранить задачу"],
+  published:["Published to students","학생에게 공개","向学生公开","Công khai cho sinh viên","Опубликовано для студентов"],
+  draft:["Unpublished","비공개","未公开","Chưa công khai","Не опубликовано"],
+  acceptSubmissions:["Accept submissions","제출 접수","接受提交","Nhận bài nộp","Принимать решения"],
+  scoringMode:["Ranking priority","순위 기준","排名依据","Ưu tiên xếp hạng","Основа рейтинга"],
+  balancedMode:["Time and memory","시간·메모리","时间与内存","Thời gian và bộ nhớ","Время и память"],
+  memoryMode:["Minimum memory","최소 메모리","最小内存","Bộ nhớ thấp nhất","Минимальная память"],
+  timeMode:["Minimum CPU time","최소 CPU 시간","最短CPU时间","CPU thấp nhất","Минимальное время CPU"],
+  memoryWeights:["Correctness 60 · Memory 40","정확성 60 · 메모리 40","正确性60 · 内存40","Độ đúng 60 · Bộ nhớ 40","Корректность 60 · Память 40"],
+  timeWeights:["Correctness 60 · Time 40","정확성 60 · 시간 40","正确性60 · 时间40","Độ đúng 60 · Thời gian 40","Корректность 60 · Время 40"],
+  modeRankingPolicy:["All tests must pass. The selected performance metric determines rank; results within the measurement tolerance share points and rank.","전체 테스트 통과자만 성능 지표로 순위를 매깁니다. 측정 오차 범위 안의 기록은 같은 점수와 순위입니다.","必须通过全部测试。按所选性能指标排名；测量容差内的结果同分同名次。","Phải qua mọi kiểm thử. Xếp theo chỉ số hiệu năng; kết quả trong sai số có cùng điểm và hạng.","Нужны все тесты. Рейтинг по выбранной метрике; результаты в пределах погрешности получают одинаковые баллы и место."],
+  inputAnswer:["Input / answer CSV","원본 / 정답 CSV","输入 / 答案 CSV","CSV đầu vào / đáp án","CSV входа / ответа"],
+  testName:["Test name","테스트 이름","测试名称","Tên kiểm thử","Название теста"],
+  inputCsv:["Input CSV","원본 CSV","输入 CSV","CSV đầu vào","Входной CSV"],
+  answerCsv:["Answer CSV","정답 CSV","答案 CSV","CSV đáp án","CSV ответа"],
+  publicInput:["Allow students to download the input","학생에게 원본 다운로드 허용","允许学生下载输入","Cho sinh viên tải đầu vào","Разрешить скачивание входных данных"],
+  addPair:["Add test pair","테스트 추가","添加测试对","Thêm cặp kiểm thử","Добавить пару тестов"],
+  students:["Students","학생","学生","Sinh viên","Студенты"],
+  correctId:["Correct ID","학번 수정","更正学号","Sửa mã sinh viên","Исправить номер"],
+  correctedId:["Corrected student ID","수정할 학번","更正后的学号","Mã sinh viên đúng","Правильный номер"],
+  studentPassword:["Student's personal password","학생 개인 비밀번호","学生个人密码","Mật khẩu cá nhân của sinh viên","Личный пароль студента"],
+  verifyCorrect:["Verify and correct","확인 후 수정","验证并更正","Xác nhận và sửa","Проверить и исправить"],
+  correctionNote:["Existing submissions stay with the student. Their personal password must match.","개인 비밀번호 확인 후 학번을 수정합니다. 제출 기록은 유지됩니다.","需验证个人密码，现有提交记录保留。","Cần đúng mật khẩu cá nhân. Giữ nguyên bài đã nộp.","Нужен верный личный пароль. Посылки сохраняются."],
+  currentId:["Current ID: {id}","현재 학번: {id}","当前学号：{id}","Mã hiện tại: {id}","Текущий номер: {id}"],
+  clearStudentSubmissions:["Clear student submissions","학생 제출물 비우기","清空学生提交","Xóa bài nộp sinh viên","Очистить посылки студентов"],
+  clearConfirm:["Remove {count} student submissions, including queued and running jobs? IDs, passwords, problems, and CSVs are kept.","학생 제출물 {count}건(대기·채점 중 포함)을 삭제할까요? 학번·비밀번호·문제·CSV는 유지됩니다.","删除 {count} 条学生提交（含排队和运行中）？学号、密码、题目和CSV保留。","Xóa {count} bài nộp, gồm bài đang chờ/chấm? Giữ mã, mật khẩu, đề bài và CSV.","Удалить {count} посылок, включая очередь и текущую проверку? Номера, пароли, задачи и CSV сохранятся."],
+  cancel:["Cancel","취소","取消","Hủy","Отмена"],
+  clearedCount:["Removed {count} submissions.","제출물 {count}건을 삭제했습니다.","已删除 {count} 条提交。","Đã xóa {count} bài nộp.","Удалено посылок: {count}."],
+  closeSubmissions:["Close submissions","접수 마감","关闭提交","Đóng nhận bài","Закрыть приём"],
+  openSubmissions:["Open submissions","접수 재개","开放提交","Mở nhận bài","Открыть приём"],
+  problemSaved:["Problem saved.","문제를 저장했습니다.","题目已保存。","Đã lưu bài.","Задача сохранена."],
+  pairSaved:["Input and answer validated and saved.","원본과 정답을 검증해 저장했습니다.","输入和答案已验证并保存。","Đã kiểm tra và lưu đầu vào/đáp án.","Вход и ответ проверены и сохранены."],
+  delete:["Delete","삭제","删除","Xóa","Удалить"],
+  publicInputLabel:["Public input","원본 공개","公开输入","Đầu vào công khai","Открытый вход"],
+  privateInputLabel:["Private input","비공개 원본","隐藏输入","Đầu vào ẩn","Закрытый вход"],
+  rejudge:["Rejudge with current tests","현재 테스트로 재채점","使用当前测试重评","Chấm lại với kiểm thử hiện tại","Перепроверить текущими тестами"],
+  rejudgeQueued:["Rejudge queued.","재채점을 요청했습니다.","已加入重评队列。","Đã yêu cầu chấm lại.","Перепроверка в очереди."],
+  testDeleted:["Test deleted.","테스트를 삭제했습니다.","测试已删除。","Đã xóa kiểm thử.","Тест удалён."],
+  deleteTestConfirm:["Delete this test? Previous results use a different test profile.","이 테스트를 삭제할까요? 이전 결과는 다른 채점 기준으로 분리됩니다.","删除此测试？旧结果将归入其他评测配置。","Xóa kiểm thử này? Kết quả cũ sẽ thuộc cấu hình khác.","Удалить тест? Старые результаты останутся в другом профиле."],
+  correctionSaved:["Student ID corrected; submissions preserved.","학번을 수정했고 제출 기록은 유지했습니다.","学号已更正，提交保留。","Đã sửa mã và giữ bài nộp.","Номер исправлен, посылки сохранены."],
+  rowsChanged:["Rows were lost, duplicated, or changed.","행이 누락·중복되었거나 내용이 변경되었습니다.","行被遗漏、重复或修改。","Hàng bị mất, lặp hoặc thay đổi.","Строки потеряны, дублированы или изменены."],
+  orderMismatch:["Row order or equal-key order does not match the requirement.","정렬 순서 또는 같은 키의 행 순서가 조건과 다릅니다.","排序或相同键的顺序不符合要求。","Thứ tự sắp xếp hoặc thứ tự khóa bằng nhau chưa đúng.","Порядок строк или равных ключей не соответствует условию."],
+  libraryRules:["Only input/output and allocation library functions are allowed. Implement comparisons, copies, and sorting yourself. Call helpers directly; indirect function calls and inline assembly are rejected.","라이브러리 함수는 입출력·동적 할당만 허용합니다. 비교·복사·정렬은 직접 구현하세요. 직접 작성한 함수를 직접 호출하고 함수 포인터 호출·인라인 어셈블리는 사용하지 마세요.","仅允许输入输出和动态分配库函数。比较、复制、排序须自行实现。直接调用自定义函数；不允许间接调用或内联汇编。","Chỉ cho phép hàm thư viện I/O và cấp phát. Tự viết so sánh, sao chép, sắp xếp; gọi hàm trực tiếp, không dùng con trỏ hàm hay assembly nội tuyến.","Разрешены лишь библиотечные функции ввода-вывода и выделения памяти. Сравнение, копирование и сортировку реализуйте сами. Только прямые вызовы; указатели функций и ассемблер запрещены."],
   adminLogin:["Admin sign in","관리자 로그인","管理员登录","Đăng nhập quản trị","Вход администратора"],
   personalPassword:["Personal password","개인 비밀번호","个人密码","Mật khẩu cá nhân","Личный пароль"],
   clearIdentity:["Clear","확인 해제","清除","Xóa","Сбросить"],
@@ -150,9 +200,9 @@ window.I18n = (() => {
   }
   function use(value,admin=false) {
     if(SORT_LOCALES.includes(value)&&!admin){preferred=value;try{localStorage.setItem("sorting-language",value);}catch{}}
-    locale=admin?"en":preferred;
+    locale=preferred;
     apply();
-    const select=document.querySelector("#language-select");select.value=locale;select.disabled=admin;
+    const select=document.querySelector("#language-select");select.value=locale;select.disabled=false;
   }
   function server(message) {
     const key=Object.keys(SORT_MESSAGES).find(key=>SORT_MESSAGES[key][0]===message);

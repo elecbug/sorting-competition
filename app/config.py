@@ -27,6 +27,9 @@ class Settings:
     memory_mb: int = 128
     job_dir: Path | None = None
     job_volume: str = ""
+    warmup_runs: int = 3
+    trim_fraction: float = 0.1
+    settle_seconds: float = 0.2
 
     @classmethod
     def from_env(cls):
@@ -43,9 +46,14 @@ class Settings:
             memory_mb=int(os.getenv("SORT_MEMORY_MB", "128")),
             job_dir=Path(os.environ["SORT_JOB_DIR"]).resolve() if os.getenv("SORT_JOB_DIR") else None,
             job_volume=os.getenv("SORT_JOB_VOLUME", ""),
+            warmup_runs=int(os.getenv("SORT_WARMUP_RUNS", "3")),
+            trim_fraction=float(os.getenv("SORT_TRIM_FRACTION", "0.1")),
+            settle_seconds=float(os.getenv("SORT_SETTLE_SECONDS", "0.2")),
         )
         if not 3 <= settings.repetitions <= 30:
             raise RuntimeError("Repetitions must be between 3 and 30.")
         if not (0 < settings.time_limit <= 10 and settings.time_limit < settings.wall_limit <= 20 and 32 <= settings.memory_mb <= 256):
             raise RuntimeError("Time or memory limits are outside the supported range.")
+        if not (1 <= settings.warmup_runs <= 10 and 0 <= settings.trim_fraction <= 0.25 and 0 <= settings.settle_seconds <= 3):
+            raise RuntimeError("Invalid warm-up, trimming, or settling configuration.")
         return settings

@@ -15,6 +15,7 @@ import uuid
 from app.config import Settings
 from app.db import Database
 from judge.profile import load_cases, problem_profile
+from judge.benchmarks import finish, source_result
 
 log = logging.getLogger("judge")
 
@@ -34,7 +35,7 @@ def sandbox_args(settings, name, source, image_id, owner=""):
     args = [
         "run", "--rm", "--name", name, "--label", "sorting-competition.worker=true", "--network", "none", "--ipc", "none",
         "--read-only", "--cap-drop=ALL", "--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=CHOWN", "--cap-add=KILL",
-        "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=1024m", "--memory-swap=1024m",
+        "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=1024m", "--memory-swap=1024m", "--cpus=1",
         f"--cpuset-cpus={settings.cpu}", "--ulimit=core=0", "--log-driver=none",
         "--tmpfs=/work:rw,exec,nosuid,nodev,size=128m,mode=1777",
         "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
@@ -49,6 +50,17 @@ class JudgeInterrupted(RuntimeError):
     pass
 
 
+class JobControl:
+    def __init__(self, shutdown, database, submission_id, token):
+        self.shutdown, self.database, self.submission_id, self.token = shutdown, database, submission_id, token
+
+    def is_set(self):
+        if self.shutdown.is_set():
+            return True
+        with self.database.connect() as db:
+            return not db.execute("SELECT 1 FROM submissions WHERE id=? AND judge_token=? AND status='running'", (self.submission_id, self.token)).fetchone()
+
+
 def execute(settings, source, cases, image_id, stop=None, owner=""):
     name = "sorting-judge-" + uuid.uuid4().hex
     job_dir = settings.job_dir or settings.data_dir / "jobs"
@@ -59,9 +71,11 @@ def execute(settings, source, cases, image_id, stop=None, owner=""):
         path.write_text(source)
         path.chmod(0o644)
         job = {"cases": cases, "repetitions": settings.repetitions, "time_limit": settings.time_limit,
-               "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb}
+               "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb,
+               "warmup_runs": settings.warmup_runs, "trim_fraction": settings.trim_fraction,
+               "settle_seconds": settings.settle_seconds}
         try:
-            timeout = 45 + len(cases) * (settings.repetitions + 1) * (settings.wall_limit + 1)
+            timeout = 90 + len(cases) * (settings.repetitions + settings.warmup_runs) * (settings.wall_limit + 1)
             run = subprocess.Popen(["docker", *sandbox_args(settings, name, str(path.resolve()), image_id, owner=owner)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             deadline = time.monotonic() + timeout
             input_data = json.dumps(job)
@@ -101,8 +115,11 @@ def ready_profile(settings):
     if image.returncode:
         raise RuntimeError("Judge image not found. Run sudo docker build -f judge/Dockerfile -t sorting-judge:local .")
     image_id = image.stdout.strip()
-    identity = {"version": 1, "image": image_id, "cpu": settings.cpu, "repetitions": settings.repetitions,
-                "time_limit": settings.time_limit, "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb}
+    boot_file = Path('/proc/sys/kernel/random/boot_id')
+    identity = {"version": 2, "image": image_id, "cpu": settings.cpu, "repetitions": settings.repetitions,
+                "time_limit": settings.time_limit, "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb,
+                "warmup_runs": settings.warmup_runs, "trim_fraction": settings.trim_fraction,
+                "settle_seconds": settings.settle_seconds, "boot": boot_file.read_text().strip() if boot_file.exists() else os.uname().nodename}
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:20]
     return digest, image_id
 
@@ -168,26 +185,32 @@ def main():
                 db.execute("BEGIN IMMEDIATE")
                 row = db.execute("SELECT * FROM submissions WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
                 if row:
-                    db.execute("UPDATE submissions SET status='running', started_at=? WHERE id=?", (time.time(), row["id"]))
+                    token = uuid.uuid4().hex
+                    db.execute("UPDATE submissions SET status='running', started_at=?,judge_token=? WHERE id=?", (time.time(), token, row["id"]))
             if not row:
                 stop.wait(1)
                 continue
             cases = load_cases(database, row["problem_id"])
             profile = problem_profile(base, cases)
             state.update(status="running", message=f"Judging submission #{row['id']}")
+            source_hash = hashlib.sha256(row["source"].encode()).hexdigest()
             try:
                 if not cases:
                     raise RuntimeError("No input/answer CSV pairs are registered for this problem.")
-                result = execute(settings, row["source"], cases, image_id, stop=stop, owner=owner)
+                result = source_result(database, profile, source_hash)
+                if result is None:
+                    result = execute(settings, row["source"], cases, image_id, stop=JobControl(stop, database, row["id"], token), owner=owner)
             except JudgeInterrupted:
                 with database.connect() as db:
-                    db.execute("UPDATE submissions SET status='queued',started_at=NULL,profile=NULL,result=NULL WHERE id=?", (row["id"],))
-                break
+                    db.execute("UPDATE submissions SET status='queued',started_at=NULL,profile=NULL,result=NULL,judge_token=NULL WHERE id=? AND judge_token=?", (row["id"], token))
+                if stop.is_set():
+                    break
+                state.update(status="ready", message="Waiting for submissions.")
+                continue
             except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
                 log.exception("Submission %s failed", row["id"])
                 result = {"status": "system_error", "message": str(exc)}
-            with database.connect() as db:
-                db.execute("UPDATE submissions SET status=?, result=?, profile=?, finished_at=? WHERE id=?", (result["status"], json.dumps(result, ensure_ascii=False), profile, time.time(), row["id"]))
+            finish(database, row["id"], token, profile, source_hash, result, time.time())
             state.update(status="ready", message="Waiting for submissions.")
     finally:
         stop.set()

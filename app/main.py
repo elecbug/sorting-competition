@@ -92,6 +92,8 @@ class ProblemPayload(Payload):
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10000)
     is_open: bool = True
+    is_published: bool = False
+    scoring_mode: Literal["balanced", "memory", "time"] = "balanced"
     translations: dict[Literal["ko", "zh", "vi", "ru"], ProblemTranslation] = Field(default_factory=dict)
 
 
@@ -104,6 +106,14 @@ class TestcasePayload(Payload):
 
 class OpenPayload(Payload):
     is_open: bool
+
+
+class PublicationPayload(Payload):
+    is_published: bool
+
+
+class ClearSubmissions(Payload):
+    confirmation: Literal["CLEAR"]
 
 
 def current_user(request: Request):
@@ -143,6 +153,8 @@ def create_app(settings=None):
     if not settings.admin_password:
         raise RuntimeError("Set SORT_ADMIN_PASSWORD in .env or run scripts/setup.py.")
     database = Database(settings.data_dir)
+    from app.problem_sets import install_pending
+    install_pending(database, settings.data_dir)
     with database.connect() as db:
         admin = db.execute("SELECT * FROM users WHERE student_id='admin'").fetchone()
         if not admin:
@@ -184,10 +196,10 @@ def create_app(settings=None):
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    def problem_or_404(problem_id):
+    def problem_or_404(problem_id, user=None):
         with database.connect() as db:
             row = db.execute("SELECT * FROM problems WHERE id=?", (problem_id,)).fetchone()
-        if not row:
+        if not row or (not row["is_published"] and (not user or user["role"] != "admin")):
             raise HTTPException(404, "Problem not found.")
         return dict(row)
 
@@ -250,19 +262,19 @@ def create_app(settings=None):
         return response
 
     @app.get("/api/problems")
-    def problems():
+    def problems(user=Depends(current_user)):
         with database.connect() as db:
             items = [dict(r) for r in db.execute("""SELECT p.*, (SELECT COUNT(*) FROM testcases t WHERE t.problem_id=p.id) test_count,
                 (SELECT COUNT(DISTINCT s.user_id) FROM submissions s JOIN users u ON u.id=s.user_id WHERE s.problem_id=p.id AND u.role='student') participants
-                FROM problems p ORDER BY p.id""")]
+                FROM problems p WHERE p.is_published=1 OR ? ORDER BY p.id""", (bool(user and user["role"] == "admin"),))]
         for item in items:
             item["translations"] = json.loads(item["translations"])
         return {"problems": items, "worker": worker_status(database), "submissions_open": database.get_meta("submissions_open", True),
                 "limits": {"repetitions": settings.repetitions, "time_seconds": settings.time_limit, "memory_mb": settings.memory_mb}}
 
     @app.get("/api/problems/{problem_id}")
-    def problem_detail(problem_id: int):
-        problem = problem_or_404(problem_id)
+    def problem_detail(problem_id: int, user=Depends(current_user)):
+        problem = problem_or_404(problem_id, user)
         problem["translations"] = json.loads(problem["translations"])
         with database.connect() as db:
             cases = [dict(r) for r in db.execute("SELECT id,title,is_public,row_count,column_count FROM testcases WHERE problem_id=? ORDER BY id", (problem_id,))]
@@ -271,14 +283,14 @@ def create_app(settings=None):
         return problem
 
     @app.get("/api/problems/{problem_id}/leaderboard")
-    def ranks(problem_id: int):
-        problem_or_404(problem_id)
+    def ranks(problem_id: int, user=Depends(current_user)):
+        problem = problem_or_404(problem_id, user)
         profile = profile_for(problem_id)
-        return {"entries": leaderboard(database, profile, problem_id), "profile": profile}
+        return {"entries": leaderboard(database, profile, problem_id), "profile": profile, "scoring_mode": problem["scoring_mode"]}
 
     @app.get("/api/problems/{problem_id}/leaderboard.csv")
     def ranks_csv(problem_id: int, user=Depends(require_admin)):
-        problem_or_404(problem_id)
+        problem_or_404(problem_id, user)
         output = io.StringIO(newline="")
         fields = ["rank", "student_id", "score", "correctness_score", "time_score", "memory_score", "time_ms", "memory_kb", "time_rank", "memory_rank", "status", "submission_id"]
         writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
@@ -291,6 +303,7 @@ def create_app(settings=None):
 
     @app.get("/api/problems/{problem_id}/testcases/{case_id}/input.csv")
     def download_input(problem_id: int, case_id: int, user=Depends(current_user)):
+        problem_or_404(problem_id, user)
         with database.connect() as db:
             case = db.execute("SELECT * FROM testcases WHERE id=? AND problem_id=?", (case_id, problem_id)).fetchone()
         if not case or (not case["is_public"] and (not user or user["role"] != "admin")):
@@ -325,7 +338,7 @@ def create_app(settings=None):
                     user = dict(db.execute("SELECT * FROM users WHERE id=?", (cursor.lastrowid,)).fetchone())
             problem = db.execute("SELECT * FROM problems WHERE id=?", (payload.problem_id,)).fetchone()
             opened = json.loads(db.execute("SELECT value FROM metadata WHERE key='submissions_open'").fetchone()[0])
-            if not problem or not problem["is_open"] or not opened:
+            if not problem or (not problem["is_published"] and not as_admin) or not problem["is_open"] or not opened:
                 raise HTTPException(400, "Submissions are closed for this problem.")
             if not db.execute("SELECT 1 FROM testcases WHERE problem_id=?", (payload.problem_id,)).fetchone():
                 raise HTTPException(400, "No test data has been registered.")
@@ -337,8 +350,11 @@ def create_app(settings=None):
                 raise HTTPException(429, "Wait 20 seconds between submissions.")
             if db.execute("SELECT COUNT(*) FROM submissions WHERE status IN ('queued','running')").fetchone()[0] >= 200:
                 raise HTTPException(429, "The judge queue is full. Try again later.")
-            cursor = db.execute("INSERT INTO submissions(user_id,problem_id,source,created_at) VALUES (?,?,?,?)", (user["id"], payload.problem_id, payload.source, time.time()))
-            submission_id = cursor.lastrowid
+            highest = int(db.execute("SELECT value FROM metadata WHERE key='submission_high_watermark'").fetchone()[0])
+            current_max = db.execute("SELECT COALESCE(MAX(id),0) FROM submissions").fetchone()[0]
+            submission_id = max(highest, current_max) + 1
+            db.execute("UPDATE metadata SET value=? WHERE key='submission_high_watermark'", (str(submission_id),))
+            db.execute("INSERT INTO submissions(id,user_id,problem_id,source,created_at) VALUES (?,?,?,?,?)", (submission_id, user["id"], payload.problem_id, payload.source, time.time()))
         return session_response(user, request, {"id": submission_id, "status": "queued"}, status_code=201)
 
     @app.get("/api/submissions")
@@ -347,6 +363,7 @@ def create_app(settings=None):
         if user["role"] != "admin":
             conditions.append("s.user_id=?")
             params.append(user["id"])
+            conditions.append("s.problem_id IN (SELECT id FROM problems WHERE is_published=1)")
         if problem_id is not None:
             conditions.append("s.problem_id=?")
             params.append(problem_id)
@@ -361,13 +378,24 @@ def create_app(settings=None):
             row = db.execute("SELECT * FROM submissions WHERE id=?", (submission_id,)).fetchone()
         if not row or (row["user_id"] != user["id"] and user["role"] != "admin"):
             raise HTTPException(404, "Submission not found.")
+        problem_or_404(row["problem_id"], user)
         return {**dict(row), "result": json.loads(row["result"]) if row["result"] else None}
 
     @app.get("/api/admin/settings")
     def admin_settings(user=Depends(require_admin)):
         with database.connect() as db:
             users = [dict(r) for r in db.execute("SELECT id,student_id,created_at FROM users WHERE role='student' ORDER BY created_at DESC LIMIT 500")]
-        return {"submissions_open": database.get_meta("submissions_open", True), "users": users, "worker": worker_status(database)}
+            summary = dict(db.execute("SELECT COUNT(*) total, COALESCE(SUM(s.status='running'),0) running, COALESCE(SUM(s.status='queued'),0) queued FROM submissions s JOIN users u ON u.id=s.user_id WHERE u.role='student'").fetchone())
+        return {"submissions_open": database.get_meta("submissions_open", True), "users": users, "submission_summary": summary, "worker": worker_status(database)}
+
+    @app.post("/api/admin/submissions/clear")
+    def clear_student_submissions(payload: ClearSubmissions, admin=Depends(require_admin)):
+        with database.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            deleted = db.execute("DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE role='student')").rowcount
+            db.execute("DELETE FROM benchmark_sources")
+            db.execute("DELETE FROM benchmark_cache")
+        return {"ok": True, "deleted": deleted}
 
     @app.patch("/api/admin/students/{student_user_id}")
     def correct_student_id(student_user_id: int, payload: IdentityCorrection, admin=Depends(require_admin)):
@@ -396,20 +424,27 @@ def create_app(settings=None):
     @app.post("/api/admin/problems", status_code=201)
     def create_problem(payload: ProblemPayload, user=Depends(require_admin)):
         with database.connect() as db:
-            cursor = db.execute("INSERT INTO problems(title,description,is_open,translations,created_at) VALUES (?,?,?,?,?)", (payload.title, payload.description, payload.is_open, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), time.time()))
+            cursor = db.execute("INSERT INTO problems(title,description,is_open,is_published,scoring_mode,translations,created_at) VALUES (?,?,?,?,?,?,?)", (payload.title, payload.description, payload.is_open, payload.is_published, payload.scoring_mode, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), time.time()))
             problem_id = cursor.lastrowid
         return {"id": problem_id}
 
     @app.patch("/api/admin/problems/{problem_id}")
     def edit_problem(problem_id: int, payload: ProblemPayload, user=Depends(require_admin)):
-        problem_or_404(problem_id)
+        problem_or_404(problem_id, user)
         with database.connect() as db:
-            db.execute("UPDATE problems SET title=?,description=?,is_open=?,translations=? WHERE id=?", (payload.title, payload.description, payload.is_open, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), problem_id))
+            db.execute("UPDATE problems SET title=?,description=?,is_open=?,is_published=?,scoring_mode=?,translations=? WHERE id=?", (payload.title, payload.description, payload.is_open, payload.is_published, payload.scoring_mode, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), problem_id))
         return {"ok": True}
+
+    @app.patch("/api/admin/problems/{problem_id}/publication")
+    def publish_problem(problem_id: int, payload: PublicationPayload, admin=Depends(require_admin)):
+        problem_or_404(problem_id, admin)
+        with database.connect() as db:
+            db.execute("UPDATE problems SET is_published=? WHERE id=?", (payload.is_published, problem_id))
+        return {"ok": True, "is_published": payload.is_published}
 
     @app.post("/api/admin/problems/{problem_id}/testcases", status_code=201)
     def create_case(problem_id: int, payload: TestcasePayload, user=Depends(require_admin)):
-        problem_or_404(problem_id)
+        problem_or_404(problem_id, user)
         try:
             rows, columns = validate_pair(payload.input_csv, payload.answer_csv)
         except ValueError as exc:

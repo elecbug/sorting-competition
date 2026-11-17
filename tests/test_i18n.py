@@ -69,7 +69,7 @@ def test_catalog_completeness_interpolation_and_admin_english():
         assert.equal(i.server('Incorrect student ID or password.'),i.t('badCredentials'));
         assert.equal(i.server('Data row 7 does not match the answer (header excluded).'),i.t('rowMismatch',{row:7}));
       }
-      i.use('ru');i.use(i.preferred,true);assert.equal(i.locale,'en');assert.equal(select.disabled,true);
+      i.use('ru');i.use(i.preferred,true);assert.equal(i.locale,'ru');assert.equal(select.disabled,false);
       i.use(i.preferred,false);assert.equal(i.locale,'ru');assert.equal(select.disabled,false);
       console.log('Five locales, interpolation, English fallback, admin language: OK');
     '''

@@ -10,7 +10,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "httpx>=0.28,<1"]
+dev = [
+    "pytest>=8,<10",
+    "httpx>=0.28,<1",
+    "libclang==18.1.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

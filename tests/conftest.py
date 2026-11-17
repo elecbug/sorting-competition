@@ -24,7 +24,7 @@ def admin(client):
 
 @pytest.fixture
 def problem(admin):
-    problem_id = admin.post('/api/admin/problems', json={'title': 'CSV sorting', 'description': 'First column, then second column for ties.'}).json()['id']
+    problem_id = admin.post('/api/admin/problems', json={'title': 'CSV sorting', 'description': 'First column, then second column for ties.', 'is_published': True}).json()['id']
     result = admin.post(f'/api/admin/problems/{problem_id}/testcases', json={'title': 'Public input', 'input_csv': 'key,name\nb,둘\na,"하나,첫"\n', 'answer_csv': 'key,name\na,"하나,첫"\nb,둘\n', 'is_public': True})
     assert result.status_code == 201, result.text
     return problem_id

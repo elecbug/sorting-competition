@@ -82,7 +82,8 @@ def verify_output(blob, answer_header, answer_rows, expected_blob=None):
     expected = [tuple(s.encode("utf-8") for s in row) for row in answer_rows]
     if len(actual) != len(expected):
         return "Output row count does not match the answer."
-    for index, (a, b) in enumerate(zip(actual, expected), 1):
-        if a != b:
-            return f"Data row {index} does not match the answer (header excluded)."
+    if actual != expected:
+        if Counter(actual) != Counter(expected):
+            return "Rows were lost, duplicated, or changed."
+        return "Row order or equal-key order does not match the requirement."
     return None
