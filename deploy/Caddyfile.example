@@ -1,0 +1,7 @@
+# 도메인을 실제 서버 DNS에 연결한 뒤 사용하세요.
+sort.example.edu {
+    request_body {
+        max_size 80MB
+    }
+    reverse_proxy 127.0.0.1:8100
+}

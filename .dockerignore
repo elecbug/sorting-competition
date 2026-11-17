@@ -1,0 +1,7 @@
+*
+!judge/
+!judge/*.py
+!judge/*.c
+!judge/Dockerfile
+!examples/
+!examples/csv_sort.h
