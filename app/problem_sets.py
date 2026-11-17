@@ -68,7 +68,10 @@ def install_pending(database, data_dir):
                 if len(matches) != 1:
                     raise ValueError("Cannot identify the earlier course assignment uniquely.")
                 members[key] = matches[0]["id"]
-        for old in manifest.get("replace",[]):
+        # Replacement targets are a snapshot for the first installation. IDs
+        # may be reused by the new set or by restored practice problems.
+        replacements = manifest.get("replace",[]) if previous.get("family") != family else []
+        for old in replacements:
             if db.execute("SELECT 1 FROM problems WHERE id=? AND title=?", (old["id"],old["title"])).fetchone():
                 db.execute("DELETE FROM submissions WHERE problem_id=?", (old["id"],))
                 db.execute("DELETE FROM testcases WHERE problem_id=?", (old["id"],))
@@ -80,7 +83,7 @@ def install_pending(database, data_dir):
             if problem_id is not None and db.execute("SELECT 1 FROM problems WHERE id=?", (problem_id,)).fetchone():
                 db.execute("UPDATE problems SET title=?,description=?,translations=?,scoring_mode=? WHERE id=?", (*content,problem_id))
             else:
-                cursor = db.execute("INSERT INTO problems(title,description,translations,scoring_mode,is_open,is_published,created_at) VALUES (?,?,?,?,1,?,?)", (*content,problem.get("is_published",False),time.time()))
+                cursor = db.execute("INSERT INTO problems(title,description,translations,scoring_mode,is_open,is_published,created_at) VALUES (?,?,?,?,?,?,?)", (*content,problem.get("is_open",True),problem.get("is_published",False),time.time()))
                 problem_id = cursor.lastrowid
             installed_members[key] = problem_id
             existing = {case["title"]: case["id"] for case in db.execute("SELECT id,title FROM testcases WHERE problem_id=?", (problem_id,))}

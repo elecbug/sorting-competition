@@ -121,7 +121,6 @@ const SORT_MESSAGES = {
   guideAnswer:["Cell contents and row order must match the answer exactly, including rows with equal keys. Do not write main() or print output.","셀 내용과 행 순서가 정답과 정확히 같아야 합니다. 같은 키의 행도 해당합니다. main()이나 출력 코드는 작성하지 마세요.","单元格内容和行顺序必须与答案完全一致，包括键值相同的行。请勿编写 main() 或输出代码。","Nội dung ô và thứ tự hàng phải khớp hoàn toàn với đáp án, kể cả các hàng có khóa bằng nhau. Không viết main() hoặc in đầu ra.","Содержимое ячеек и порядок строк должны точно совпадать с ответом, включая строки с одинаковыми ключами. Не пишите main() и не печатайте вывод."],
   downloadHeader:["Download header","헤더 다운로드","下载头文件","Tải tệp tiêu đề","Скачать заголовок"],
   downloadTemplate:["Download template","템플릿 다운로드","下载模板","Tải mẫu","Скачать шаблон"],
-  tiePolicy:["Time and memory-priority comparisons use zero tolerance. Other memory comparisons allow 1 MiB; balanced total-score ranks allow 0.1 points.","시간과 메모리 우선 비교의 허용 오차는 0입니다. 그 외 메모리는 1 MiB, 균형 평가의 총점 동순위는 0.1점입니다.","时间和内存优先比较的容差为0。其他内存比较允许1 MiB；综合评分排名允许0.1分。","Sai số cho thời gian và bài ưu tiên bộ nhớ là 0. Bộ nhớ ở bài khác cho phép 1 MiB; tổng điểm cân bằng cho phép 0,1 điểm.","Допуск времени и задач на память — 0. Для остальных сравнений памяти — 1 MiB, общего балла сбалансированных задач — 0,1."],
   queued:["Queued","채점 대기","等待评测","Đang chờ","В очереди"],
   running:["Judging","채점 중","评测中","Đang chấm","Проверяется"],
   wrong_answer:["Wrong answer","오답","答案错误","Sai đáp án","Неверный ответ"],

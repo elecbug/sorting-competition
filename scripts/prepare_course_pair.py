@@ -116,7 +116,7 @@ def stage(settings, reset_students=False):
         manifest["replace"] = [dict(row) for row in db.execute("SELECT id,title FROM problems ORDER BY id")]
     for kind in ("district", "memory"):
         texts = problem_texts(kind, len(values), len(header))
-        problem = {**texts.pop("en"), "key": kind, "column": 2 if kind == "district" else len(header), "secondary_column": len(header) if kind == "district" else None, "translations": texts, "is_published": True, "scoring_mode": "time" if kind == "district" else "memory", "cases": []}
+        problem = {**texts.pop("en"), "key": kind, "column": 2 if kind == "district" else len(header), "secondary_column": len(header) if kind == "district" else None, "translations": texts, "is_open": False, "is_published": True, "scoring_mode": "time" if kind == "district" else "memory", "cases": []}
         for index, (title, public, original, answer) in enumerate(build_cases(values, kind), 1):
             original_text, answer_text = csv_text(header, original), csv_text(header, answer)
             validate_pair(original_text, answer_text)

@@ -107,7 +107,7 @@ The judge image now installs libclang for source policy checking, so rebuild **a
 sudo docker compose up -d --build
 ```
 
-The current two-problem course set starts published. Administrators can change **Published to students** at any time. Changing the checkbox on an existing problem takes effect immediately; it is separate from submission closure. An unpublished problem and its input/history/ranking routes return no student-visible content. Administrators can still inspect it.
+The current two-problem course set starts published with submissions closed. Administrators can change **Published to students** and **Accept submissions** independently. Later manifest revisions preserve those administrator choices. Changing the checkbox on an existing problem takes effect immediately; it is separate from submission closure. An unpublished problem and its input/history/ranking routes return no student-visible content. Administrators can still inspect it.
 
 All supported UI languages are now available while signed in as administrator; server logs and API messages continue to use English. **Clear student submissions** previews the count and requires confirmation, deletes only student code/results/queue entries, retains IDs/passwords and assignment data, and stops matching active jobs. The feature is not executed automatically by an update.
 

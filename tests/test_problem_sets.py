@@ -68,6 +68,29 @@ def test_problem_copy_states_conditions_without_algorithm_hints():
     assert 'relative order' in statements('stable',2,'key',2,3)['en']['description']
 
 
+def test_revision_preserves_reused_ids_restored_practice_and_manual_submission_toggle(app,client,problem):
+    database=app.state.db;directory=app.state.settings.data_dir
+    (directory/'input.csv').write_text('key\na\nb\n')
+    manifest={'set_id':'first','family':'reused-ids','replace':[{'id':problem,'title':'CSV sorting'},{'id':4,'title':'Restored practice'}], 'problems':[{'key':'main','title':'CSV sorting','description':'Course problem','translations':{},'scoring_mode':'time','is_published':True,'is_open':False,'cases':[{'title':'Input','input_file':'input.csv','answer_file':'input.csv','is_public':True}]}]}
+    path=directory/'pending_problem_set.json';path.write_text(json.dumps(manifest))
+    install_pending(database,directory)
+    with database.connect() as db:
+        course=db.execute('SELECT * FROM problems').fetchone()
+        assert course['id']==problem and not course['is_open']
+        case_id=db.execute('SELECT id FROM testcases').fetchone()[0]
+        db.execute('UPDATE problems SET is_open=1 WHERE id=?',(problem,))
+        db.execute("INSERT INTO problems(id,title,description,is_open,is_published,created_at) VALUES (4,'Restored practice','Practice',1,1,0)")
+    submitted=submit_student(client,problem).json()
+    manifest['set_id']='second';manifest['problems'][0]['description']='Revised course statement'
+    path.write_text(json.dumps(manifest));install_pending(database,directory)
+    with database.connect() as db:
+        assert db.execute('SELECT COUNT(*) FROM problems').fetchone()[0]==2
+        course=db.execute('SELECT * FROM problems WHERE id=?',(problem,)).fetchone()
+        assert course['is_open'] and course['description']=='Revised course statement'
+        assert db.execute('SELECT id FROM testcases').fetchone()[0]==case_id
+        assert db.execute('SELECT id FROM submissions').fetchone()[0]==submitted['id']
+
+
 def test_unique_filter_preserves_original_payload():
     rows=[['A1234','first'],['bad','x'],['A1234','second'],['B9876','third']]
     assert unique_rows(rows,0,lambda v:len(v)==5)==[rows[0],rows[3]]

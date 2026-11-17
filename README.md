@@ -95,7 +95,7 @@ Tests cover registration-free submissions, private passwords and history, simult
 
 ## Prepared assignments and publication
 
-Run `python3 scripts/prepare_course_pair.py` on the host to prepare two assignments from `data/sample_csv`. `--apply` installs the prepared set atomically after a SQLite backup under `data/backups`. Each manifest revision runs once and updates the same managed problem IDs. Add `--reset-students` while preparing a new set only when intentionally removing student identities, sessions, and all submissions. That reset is recorded separately and will not repeat after later statement edits. The administrator account is preserved.
+Run `python3 scripts/prepare_course_pair.py` on the host to prepare two assignments from `data/sample_csv`. `--apply` installs the prepared set atomically after a SQLite backup under `data/backups`. Course assignments start published with submissions closed. Each manifest revision runs once and updates the same managed problem IDs, preserving later instructor changes to submission settings. Add `--reset-students` while preparing a new set only when intentionally removing student identities, sessions, and all submissions. That reset is recorded separately and will not repeat after later statement edits. The administrator account is preserved.
 
 Both assignments retain the signal-register records and add a unique `record_key` as column 35. The first uses shuffled inputs and requires column 2 ascending, then column 35 ascending for equal values; CPU time determines performance ranking. The second sorts column 35 and ranks lower Peak RSS first, then lower CPU time for equal memory usage. Memory points are based on RSS; time breaks ranking ties. Statements describe the output without naming algorithms.
 
