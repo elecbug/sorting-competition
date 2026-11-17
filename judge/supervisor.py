@@ -17,12 +17,12 @@ from judge.datasets import encode_table, parse_csv, validate_pair, verify_output
 
 
 def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limit, process_limit=1, work_dir="/work", uid=65534, launcher="/opt/launch"):
-    with tempfile.TemporaryFile(dir=work_dir) as inp, tempfile.TemporaryFile(dir=work_dir) as out, tempfile.TemporaryFile(dir=work_dir) as err:
+    with tempfile.TemporaryFile(dir=work_dir) as inp, tempfile.TemporaryFile(dir=work_dir) as out, tempfile.TemporaryFile(dir=work_dir) as err, tempfile.TemporaryFile(dir=work_dir) as metrics:
         inp.write(input_data)
         inp.seek(0)
         started = time.monotonic()
         command = [launcher, str(math.ceil(cpu_limit)), str(memory_mb * 1024**2), str(output_limit), str(process_limit), str(uid if uid is not None else -1), work_dir, *argv]
-        actions = [(os.POSIX_SPAWN_DUP2, inp.fileno(), 0), (os.POSIX_SPAWN_DUP2, out.fileno(), 1), (os.POSIX_SPAWN_DUP2, err.fileno(), 2)]
+        actions = [(os.POSIX_SPAWN_DUP2, inp.fileno(), 0), (os.POSIX_SPAWN_DUP2, out.fileno(), 1), (os.POSIX_SPAWN_DUP2, err.fileno(), 2), (os.POSIX_SPAWN_DUP2, metrics.fileno(), 3)]
         pid = os.posix_spawn(launcher, command, {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "HOME": work_dir}, file_actions=actions)
         timed_out = False
         try:
@@ -46,10 +46,18 @@ def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limi
                 pass
         out.seek(0)
         err.seek(0)
-        cpu_ms = (usage.ru_utime + usage.ru_stime) * 1000
+        metrics.seek(0)
+        report = metrics.read(128).decode("ascii").split()
+        if len(report) == 3:
+            micros, memory_kb, exit_code = map(int, report)
+            cpu_ms = micros / 1000
+        elif timed_out:
+            cpu_ms, memory_kb, exit_code = 0, 0, -signal.SIGKILL
+        else:
+            raise RuntimeError("네이티브 측정 프로세스가 결과를 보고하지 못했습니다.")
         return {
-            "exit_code": os.waitstatus_to_exitcode(status), "timed_out": timed_out or cpu_ms > cpu_limit * 1000,
-            "time_ms": round(cpu_ms, 4), "memory_kb": usage.ru_maxrss,
+            "exit_code": exit_code, "timed_out": timed_out or cpu_ms > cpu_limit * 1000,
+            "time_ms": round(cpu_ms, 4), "memory_kb": memory_kb,
             "stdout": out.read(output_limit + 1), "stderr": err.read(8192).decode("utf-8", errors="replace"),
         }
 
