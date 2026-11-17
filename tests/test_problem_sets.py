@@ -41,6 +41,7 @@ def test_problem_copy_states_conditions_without_algorithm_hints():
         texts=statements(kind,2,'key',1234,3)
         assert set(texts)=={'en','ko','zh','vi','ru'}
         assert 'column 2' in texts['en']['description']
+        assert 'Up to 1,234 rows / 3 columns.' in texts['en']['description']
         all_text=' '.join(x['title']+' '+x['description'] for x in texts.values()).lower()
         assert 'radix' not in all_text and 'fixed-width' not in all_text and 'five ascii' not in all_text
     assert 'relative order' in statements('stable',2,'key',2,3)['en']['description']

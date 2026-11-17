@@ -12,7 +12,7 @@ from app.config import Settings
 from app.db import Database
 from judge.datasets import validate_pair
 
-SET_ID='sorting-course-v2'
+SET_ID='sorting-course-v3'
 
 def csv_text(header, rows):
     stream=io.StringIO(newline=''); writer=csv.writer(stream);writer.writerow(header);writer.writerows(rows);return stream.getvalue()
@@ -45,7 +45,8 @@ def statements(kind, column, header, count, columns):
         extra=['Keys are unique in every test, so stability is not required. Optimize CPU time. Correctness 60, time 40, memory 0.', '각 테스트에서 키는 중복되지 않으므로 안정정렬은 필수가 아닙니다. CPU 시간을 최소화하세요. 정확성 60점, 시간 40점, 메모리 0점입니다.', '每个测试中的键均唯一，不要求稳定排序。优化CPU时间。正确性60分，时间40分，内存0分。', 'Khóa không trùng trong mỗi kiểm thử, không bắt buộc ổn định. Giảm thời gian CPU. Độ đúng 60, thời gian 40, bộ nhớ 0.', 'Ключи каждого теста уникальны, стабильность не требуется. Минимизируйте время CPU. Корректность 60, время 40, память 0.']
     result={}
     for language,title,body,tail in zip(('en','ko','zh','vi','ru'),names[kind],(en,ko,zh,vi,ru),extra):
-        result[language]={'title':title,'description':body+'\n'+tail+f'\n\n{count:,} rows / {columns} columns.'}
+        sizes={'en':f'Up to {count:,} rows / {columns} columns.','ko':f'최대 {count:,}행 / {columns}열.','zh':f'最多 {count:,} 行 / {columns} 列。','vi':f'Tối đa {count:,} hàng / {columns} cột.','ru':f'До {count:,} строк / {columns} столбцов.'}
+        result[language]={'title':title,'description':body+'\n'+tail+'\n\n'+sizes[language]}
     return result
 
 def stage(settings):
@@ -75,6 +76,7 @@ def stage(settings):
         for label,public,seed,subset in [('Public input',True,100+index,None),('Hidden shuffle',False,900+index,None),('Hidden edge cases',False,1700+index,256)]:
             values=list(rows[:subset] if subset else rows)
             random.Random(seed).shuffle(values)
+            if public:values=values[:max(1,len(values)*4//5)]
             answer=sorted(values,key=lambda row:row[column].encode('utf-8'))
             original_text,answer_text=csv_text(header,values),csv_text(header,answer)
             validate_pair(original_text,answer_text)

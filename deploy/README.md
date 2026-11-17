@@ -83,7 +83,7 @@ Input and answer headers and complete-row multisets must match on upload, includ
 
 The image ID, CPU, limits, repetitions, and test digests define a measurement profile. Old results remain in history but are excluded from changed profiles. Use **Rejudge with current tests** after changing data or grading environments. Changing translated statements alone does not invalidate results.
 
-Only the latest completed submission per student in the current profile is ranked. A newer wrong answer replaces an earlier accepted result; queued/running submissions and judge errors do not. Administrators are excluded. Correctness is passed/all × 60; all-passing submissions receive `30 × best time / own time` and `10 × best RSS / own RSS`. Score differences within 0.1, time within 1%, and RSS within 1 MiB share their respective ranks, comparing against each group's first member.
+Only the latest completed submission per student in the current profile is ranked. A newer wrong answer replaces an earlier accepted result; queued/running submissions and judge errors do not. Administrators are excluded. Correctness is passed/all × 60. Performance weights depend on the problem's scoring mode, as described below. Tolerance groups compare each measurement against the group's first member.
 
 ## Backups
 
@@ -91,7 +91,7 @@ The database contains private code, password hashes, and answer files. Use SQLit
 
 ## Current measurement policy
 
-The old median-based description above is superseded by this policy: run the configured warm-ups, then N measured fresh processes, sort the CPU samples, remove `floor(N × SORT_TRIM_FRACTION)` from each tail, and average the remainder. Peak RSS remains the maximum across measured runs. Default warm-ups: 3; settling delay after preparation: 0.2 seconds; trim: 10%. N supports 3–100. The selected CPU also has a one-CPU quota. Keep the reserved core and its SMT sibling free of other workloads.
+Run the configured warm-ups, then N measured fresh processes, sort the CPU samples, remove `floor(N × SORT_TRIM_FRACTION)` from each tail, and average the remainder. Peak RSS is the maximum across measured runs. Default warm-ups: 3; settling delay after preparation: 0.2 seconds; trim: 10%. N supports 3–100. The selected CPU also has a one-CPU quota. Keep the reserved core and its SMT sibling free of other workloads.
 
 A profile includes sandbox image, boot ID, CPU, limits, repetitions, warm-ups, trimming, and settling. A host reboot or changed profile requires rejudging. Accepted measurements are canonical per stripped executable hash/profile, with source-hash aliases for exact repeats. Clearing student submissions resets these caches. Job tokens and monotonically increasing submission IDs prevent an interrupted old job from updating a later submission after deletion.
 

@@ -60,20 +60,21 @@ Instructors can edit problem titles and statements in each language. Missing tra
 
 - Correctness: passed tests / all tests × 60.
 - All tests must pass to receive a rank and performance points.
-- CPU: 30 × best time / own time. Memory: 10 × best Peak RSS / own Peak RSS.
+- Balanced problems award up to 30 for CPU time and 10 for memory. Time-priority problems award 40 for CPU time; memory-priority problems award 40 for memory. Each component uses its weight × best measurement / own measurement, with the tolerance grouping described below.
 - Three checked warm-ups and N measured runs per test. CPU uses the sum of per-test trimmed means; memory is the largest measured RSS.
 - A native parent measures CPU/RSS outside the student process. Common data loading/output are included. Compilation and private answer validation are excluded.
 - The latest completed submission per student is ranked. Test/environment profiles separate incompatible measurements. Administrators can rejudge older submissions.
 
-## Samples and development
+## Course data and development
 
-The provided originals in `data/sample_csv/` are preserved. Importing samples generates clearly marked demonstration answers using ascending UTF-8 `strcmp` on the first column, then all columns for ties:
+The provided originals in `data/sample_csv/` are preserved. Prepare the three course assignments and apply them on the next updated web startup:
 
 ```bash
-docker compose exec web python scripts/import_samples.py
+python3 scripts/prepare_course_problems.py
+docker compose up -d --build
 ```
 
-Use instructor-prepared answers for actual assignments. See [deploy/README.md](deploy/README.md) for storage, migration, isolation, and backups.
+Each assignment has a public input, a larger private input with withheld rows, and a smaller private case. Answers remain private. Use input/answer CSV pairs for additional instructor-created assignments. See [deploy/README.md](deploy/README.md) for storage, migration, isolation, and backups.
 
 For host development only:
 
@@ -84,7 +85,7 @@ uv sync --frozen
 .venv/bin/python -m pytest -q
 node --check app/static/app.js
 node --check app/static/i18n.js
-.venv/bin/python scripts/verify_samples.py  # only the repository-authored reference
+.venv/bin/python scripts/verify_course_problems.py  # only repository-authored references
 ```
 
 Tests cover registration-free submissions, private passwords and history, simultaneous first submissions, ID corrections, CSV validation, scoring, languages, Compose separation, and worker cancellation/recovery. Actual container execution requires Docker daemon access and built images.
