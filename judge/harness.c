@@ -51,6 +51,6 @@ int main(void) {
     write_u32(count);
     write_row(table.header, columns);
     for (size_t r = 0; r < count; r++) write_row(table.rows[r], columns);
-    /* OS가 회수합니다. 학생이 저장 방식을 바꾸어도 잘못된 free를 하지 않습니다. */
+    /* The OS reclaims memory, avoiding invalid frees if the student changes storage. */
     return fflush(stdout) == 0 ? 0 : 73;
 }

@@ -1,16 +1,15 @@
-# 서버 운영
+# Server operations
 
-웹과 채점 worker는 별도 프로세스입니다. 웹은 Docker 접근 권한이 필요하지 않습니다.
+The web process and judge worker are separate. Only the worker needs Docker access.
 
 ```bash
 uv sync --frozen
 .venv/bin/python scripts/setup.py
-# 선택: 제공된 원본으로 시연용 문제와 생성 정답을 등록 (원본 파일은 보존)
-.venv/bin/python scripts/import_samples.py
+.venv/bin/python scripts/import_samples.py  # optional generated demonstration problems
 sudo bash deploy/install.sh
 ```
 
-설치 스크립트는 Docker 이미지를 빌드하고 `sorting-arena-web`, `sorting-arena-worker` systemd 서비스를 설치합니다. worker 서비스에만 `SupplementaryGroups=docker`를 설정하며 계정 자체의 그룹은 변경하지 않습니다. 웹은 기본 `0.0.0.0:8100`에서 수신합니다. 방화벽/외부 라우팅은 서버 정책에 맞게 설정합니다. `.env`의 `SORT_PORT`로 포트를 바꿀 수 있습니다.
+The installer builds `sorting-judge:local` and installs `sorting-arena-web` and `sorting-arena-worker` systemd services. It grants `SupplementaryGroups=docker` only to the worker service without changing the account's group membership. Default bind address: `0.0.0.0:8100`. Configure firewall and routing according to your server policy.
 
 ```bash
 sudo systemctl status sorting-arena-web sorting-arena-worker
@@ -18,32 +17,47 @@ sudo journalctl -u sorting-arena-worker -f
 sudo systemctl restart sorting-arena-web sorting-arena-worker
 ```
 
-관리자 ID는 `admin`, 비밀번호와 학생 가입 코드는 `.env`에서 확인합니다. 관리자로 로그인하면 운영 관리에서 문제 설명 및 원본/정답 CSV 쌍을 등록할 수 있습니다. 테스트당 원본 공개 여부를 선택합니다. 정답 다운로드 API는 제공하지 않습니다. 기본 샘플 원본 외 실제 수업 데이터와 정답은 Git에 포함하지 마세요.
+Read the administrator password and student registration code from `.env`. Sign in as `admin` to create problems, edit translated statements, and upload input/answer pairs. Input downloads can be public or private per test; answer downloads are never exposed. Restart both services after editing `.env`. Existing administrator sessions are revoked when the configured password changes.
 
-도메인과 TLS를 사용할 때 `Caddyfile.example`을 참고하고 `.env`의 `SORT_HOST=127.0.0.1`, `SORT_COOKIE_SECURE=true`를 설정한 뒤 서비스를 다시 시작하세요. 기본 제공 계정 로그인 제한은 실제 접속 IP를 사용하므로 reverse proxy 뒤에서는 IP 기준 요청 제한을 proxy에서도 설정하는 편이 좋습니다. 앱은 임의의 X-Forwarded-For 헤더를 신뢰하지 않습니다.
+## Languages
 
-## 격리와 측정
+Administration and server output use English. The student UI offers `en`, `ko`, `zh`, `vi`, and `ru`, including submission statuses and ordinary error messages. Date and number formatting follows the selected language. The browser remembers the preference. Administrators always see English.
 
-- 현재 이미지 ID를 고정해 실행하며, 네트워크·IPC 공유·호스트 쓰기를 차단하고 capabilities를 최소화합니다. `/work`, `/tmp`는 크기가 제한된 tmpfs입니다. Docker 소켓은 채점 컨테이너에 전달하지 않습니다.
-- 감독 프로세스는 컨테이너 내부 root이고, GCC와 학생 프로그램은 uid/gid 65534로 실행합니다. 학생은 감독자의 정답 메모리 및 결과 출력 FD에 접근할 수 없습니다. 학생 프로그램은 프로세스 생성 제한, 주소 공간 제한, CPU 제한, 실제 경과 시간 제한, 출력 크기 제한을 받습니다. Docker 기본 seccomp도 유지합니다.
-- 프로세스 메모리 제한은 기본 주소 공간 128 MiB입니다. Peak RSS를 지표로 공개합니다. 컨테이너 전체는 감독자의 큰 CSV 메모리까지 포함해 1 GiB로 제한합니다. 메모리 부족이 학생 코드의 NULL 접근으로 나타나면 실행 오류로 분류될 수도 있습니다.
-- 감독자는 `posix_spawn`으로 네이티브 launcher를 시작하고, launcher가 다시 fork하여 학생 프로그램을 실행합니다. Python 주소 공간이 exec로 교체된 다음 측정 자식을 만들므로 큰 CSV 메모리가 학생의 RSS에 섞이지 않습니다. 별도 UID를 유지한 네이티브 부모가 `wait4`의 CPU 시간(user + system), Peak RSS를 전용 FD로 보고합니다. 학생 프로세스에서는 이 FD를 닫습니다.
-- 전체 프로세스를 측정하므로 CSV 구조 구성·공통 직렬화·프로세스 시작 비용도 포함합니다. 함수 내부에서 보고한 시간은 신뢰하지 않습니다. 컴파일·Docker 시작·정답 검증·교수자의 CSV 파싱은 측정에서 제외합니다.
-- 테스트별 1회 준비 실행 후 기본 10회 독립 실행의 중앙값을 합산합니다. 메모리는 측정 실행 전체의 최고 RSS입니다. 모든 실행에서 정답 일치를 확인합니다. 한 worker와 고정 CPU를 사용합니다. `SORT_CPU`의 SMT 형제 코어와 다른 서비스의 부하는 별도로 관리하세요. 코어 고정 자체가 CPU 독점을 보장하지는 않습니다.
-- 일반 컨테이너는 호스트 커널을 공유합니다. 외부의 임의 사용자를 대규모로 받는 서비스라면 judge 전용 VM/서버 또는 별도의 강한 격리 런타임을 사용하세요.
+Use **Content language** in the problem editor for translated titles and descriptions. English is required; empty translations fall back to it. Changing a statement does not change CSV content or invalidate measured results. Raw C code, CSV values, original filenames, and GCC diagnostics retain their original content.
 
-## 데이터 변경과 순위
+## HTTPS
 
-CSV는 UTF-8 (BOM 허용), 파일당 32 MiB, 100,000개 데이터 행, 64열, 총 2,000,000개 셀 이하입니다. 한 셀은 16 KiB 이하이며 NUL 문자는 허용하지 않습니다. 문제당 최대 10쌍, 원본/정답 합계 128 MiB입니다. 등록할 때 헤더와 행별 multiset이 원본/정답에서 같은지 확인합니다. 인용부호, BOM, 파일 줄바꿈 표기는 파싱한 셀 내용에 영향을 주지 않는 한 정답 여부에 영향을 주지 않습니다. 셀 내부의 개행 및 공백은 내용이므로 보존해야 합니다.
+Use `Caddyfile.example` after connecting your domain to the server. Set `SORT_HOST=127.0.0.1` and `SORT_COOKIE_SECURE=true` behind a TLS proxy, then restart services. Requests are limited using the actual peer address; add per-client limits at the proxy when appropriate. The application does not trust arbitrary forwarded IP headers.
 
-정답과 셀 내용 및 **행 순서 전체**가 일치해야 합니다. 동일 키의 다른 행은 동률 처리 규칙을 문제 설명에 명시하세요. 키만 정렬되어 있고 정답 순서와 다른 결과는 오답입니다.
+## Isolation and measurement
 
-환경(이미지 ID, CPU, 제한, 반복 횟수) 및 테스트 원본/정답 digest로 측정 profile을 만듭니다. 데이터 변경 후 예전 결과는 제출 기록에 남고 새 순위표에서는 제외됩니다. 운영자가 제출 상세의 재채점 버튼으로 현재 데이터에 재채점할 수 있습니다. 성능 비교 규칙을 바꾸거나 서버 하드웨어를 옮길 때도 이미지를 새로 빌드하고 전체 재채점하세요.
+- A single worker processes submissions sequentially on `SORT_CPU`. A file lock prevents duplicate workers against the same database.
+- Containers use a fixed image ID, no network, no shared IPC, a read-only root filesystem, restricted capabilities, Docker's default seccomp, and bounded tmpfs storage. They never receive the Docker socket or database directory.
+- The supervisor and native measurement parent retain a separate UID from GCC/student code. GCC and student executables run as UID/GID 65534. Private answers remain in the supervisor's memory and are not passed as files to the student process.
+- Student processes have CPU, wall time, address-space, output-size, file-descriptor, and process-count limits. Defaults: 2 CPU seconds, 4 wall seconds, 128 MiB address space. The entire container, including the CSV supervisor, has a 1 GiB memory limit.
+- The supervisor starts a native launcher; that launcher forks a fresh measured child after replacing Python's address space. This prevents the supervisor's large CSV heap from inflating student RSS. The native parent reports `wait4` CPU time (user + system) and Peak RSS through an FD closed in the candidate. Student-generated timing output is ignored.
+- One checked warm-up precedes each test's measured repetitions. Every run is checked against the answer. CPU medians are summed across tests; the largest measured RSS is used. Compilation, Docker startup, Python CSV parsing, and answer comparison are excluded. Common C data loading and output remain included.
+- Address-space exhaustion may appear as a runtime error if student code dereferences a failed allocation. Peak RSS includes input data and the common runtime.
+- CPU affinity does not reserve a physical core. Keep other services and its SMT sibling idle for fair measurements. Docker shares the host kernel; for hostile public workloads, place the judge on a dedicated VM/server or use a stronger isolation runtime.
 
-학생별 현재 profile의 가장 최신 채점 완료 제출을 사용합니다. 새 제출이 오답이면 이전 정답 기록 대신 오답이 표시됩니다. 대기·채점 중·시스템 오류는 완료 제출로 취급하지 않습니다. 관리자 제출은 순위표에서 제외됩니다.
+## CSV and answers
 
-정확성은 통과 테스트 비율 × 60점입니다. 전체 통과자만 `30 × 최소 CPU 시간 / 본인 CPU 시간` 및 `10 × 최소 Peak RSS / 본인 Peak RSS` 점수를 받습니다. 상대 점수이므로 다른 참가자의 제출에 따라 변동합니다. 종합 점수 0.1점, CPU 1%, RSS 1 MiB 이내를 각각 동순위로 묶으며 그룹의 첫 값을 기준으로 해 연쇄 동률을 방지합니다.
+Files must be UTF-8 (BOM accepted), up to 32 MiB, 100,000 data rows, 64 columns, and 2,000,000 total cells including the header. Each cell is limited to 16 KiB; NUL is rejected. Each problem supports 10 input/answer pairs and 128 MiB combined data.
 
-## 백업
+Upload validation requires identical headers and the same multiset of complete rows, including duplicate counts. During judging, **all cell contents and the complete row order must match the answer**. Define tie-breaking explicitly when equal keys have different rows. File quoting/BOM/record separators do not affect grading after CSV parsing; whitespace and newlines inside cells remain data.
 
-실행 중에는 SQLite backup API를 사용하세요. `data/competition.db`에는 계정, 소스, 비공개 정답이 포함됩니다. `.env`와 함께 제한된 권한으로 백업하세요. WAL이 활성화되어 있으므로 실행 중 DB 파일 하나만 복사하면 안 됩니다. 업데이트 후 `uv sync --frozen`, 이미지 재빌드, 서비스 재시작을 수행하세요.
+The sample importer generates demonstration answers using the specified column, ascending UTF-8 `strcmp`, then all columns left to right for ties. It preserves originals and marks these problems as generated samples. Use instructor-prepared answers for actual assignments.
+
+## Profiles and ranking
+
+Image ID, CPU, resource limits, repetition count, and test digests define a profile. Old results remain in submission history but are excluded from changed profiles. Use **Rejudge with current tests** in submission details after changing data. Rebuild the image and rejudge after changes to the grading implementation or hardware.
+
+Only the latest completed submission per student in the current profile is used. A newer wrong answer replaces a previous accepted result. Queued/running submissions and judge errors do not replace completed results. Administrator submissions are excluded.
+
+Correctness is the fraction of passed tests × 60. All-passing entries receive relative performance points: `30 × best time / own time` and `10 × best RSS / own RSS`. Scores change when participant records improve. Score differences within 0.1, time within 1%, and RSS within 1 MiB share ranks in their respective leaderboards. Ties compare against the first member of a group, avoiding chained ties.
+
+## Backups and updates
+
+`data/competition.db` contains accounts, source code, and private answers. Back it up with SQLite's backup API while running, along with `.env`, using restricted permissions. Do not copy only the main database file while WAL is active.
+
+For updates: `uv sync --frozen`, rebuild the judge image if required, then restart both services. Runtime files and generated answers are excluded from Git; keep actual private assignment data out of tracked sample directories.

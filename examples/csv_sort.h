@@ -8,13 +8,13 @@ typedef struct {
 
 typedef struct {
     string *data;
-    size_t count;     /* 열 개수 */
+    size_t count;     /* Number of columns */
 } row;
 
 typedef struct {
-    row header;       /* CSV 첫 번째 행 */
-    row *rows;        /* CSV 데이터 행 */
-    size_t count;     /* 데이터 행 개수 (헤더 제외) */
+    row header;       /* First CSV row */
+    row *rows;        /* CSV data rows */
+    size_t count;     /* Number of data rows, excluding the header */
 } rows;
 
 void student_sort(rows *table);

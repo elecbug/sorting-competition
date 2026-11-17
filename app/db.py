@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS problems (
  id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
- is_open INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL
+ is_open INTEGER NOT NULL DEFAULT 1, translations TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS testcases (
  id INTEGER PRIMARY KEY, problem_id INTEGER NOT NULL REFERENCES problems(id), title TEXT NOT NULL,
@@ -43,6 +43,9 @@ class Database:
         self.path.chmod(0o600)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(problems)")}
+            if "translations" not in columns:
+                db.execute("ALTER TABLE problems ADD COLUMN translations TEXT NOT NULL DEFAULT '{}'")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submissions_open', 'true')")
         self.path.chmod(0o600)
 

@@ -9,20 +9,20 @@ MAX_CSV_BYTES = 32 * 1024 * 1024
 
 def parse_csv(text):
     if len(text.encode("utf-8")) > MAX_CSV_BYTES or "\x00" in text:
-        raise ValueError("CSV는 NUL 문자가 없는 UTF-8 파일이며 32 MiB 이하여야 합니다.")
+        raise ValueError("CSV must be UTF-8 without NUL characters and at most 32 MiB.")
     try:
         parsed = list(csv.reader(io.StringIO(text.lstrip("\ufeff"), newline=""), strict=True))
     except csv.Error as exc:
-        raise ValueError(f"CSV 형식 오류: {exc}") from exc
+        raise ValueError(f"Invalid CSV format: {exc}") from exc
     if not parsed or not 1 <= len(parsed[0]) <= 64:
-        raise ValueError("첫 행에 1~64개 열의 헤더가 필요합니다.")
+        raise ValueError("The first row must be a header with 1 to 64 columns.")
     columns = len(parsed[0])
     if len(parsed) > 100001 or any(len(row) != columns for row in parsed):
-        raise ValueError("CSV는 100,000행 이하이며 모든 행의 열 개수가 헤더와 같아야 합니다.")
+        raise ValueError("CSV supports at most 100,000 rows; every row must match the header width.")
     if len(parsed) * columns > 2000000:
-        raise ValueError("CSV는 헤더를 포함해 총 2,000,000개 셀 이하여야 합니다.")
+        raise ValueError("CSV supports at most 2,000,000 cells including the header.")
     if any(len(cell.encode("utf-8")) > 16384 for row in parsed for cell in row):
-        raise ValueError("한 셀은 UTF-8 기준 16 KiB 이하여야 합니다.")
+        raise ValueError("Each cell must not exceed 16 KiB in UTF-8.")
     return parsed[0], parsed[1:]
 
 
@@ -30,9 +30,9 @@ def validate_pair(input_csv, answer_csv):
     header, original = parse_csv(input_csv)
     answer_header, answer = parse_csv(answer_csv)
     if header != answer_header:
-        raise ValueError("원본과 정답의 헤더가 같아야 합니다.")
+        raise ValueError("Input and answer headers must be identical.")
     if Counter(map(tuple, original)) != Counter(map(tuple, answer)):
-        raise ValueError("정답은 원본의 행 순서만 바꿔야 합니다. 셀 내용과 각 행의 개수를 확인하세요.")
+        raise ValueError("The answer must contain exactly the original rows, including duplicate counts.")
     return len(original), len(header)
 
 
@@ -48,25 +48,25 @@ def encode_table(header, rows):
 
 def decode_table(blob):
     if len(blob) < 8:
-        raise ValueError("출력 헤더가 없습니다.")
+        raise ValueError("Output header is missing.")
     columns, count = struct.unpack_from("<II", blob)
     if not 1 <= columns <= 64 or count > 100000 or (count + 1) * columns > 2000000:
-        raise ValueError("행/열 개수가 잘못되었습니다.")
+        raise ValueError("Invalid output row or column count.")
     offset, table = 8, []
     for _ in range(count + 1):
         row = []
         for _ in range(columns):
             if offset + 4 > len(blob):
-                raise ValueError("출력이 잘렸습니다.")
+                raise ValueError("Output is truncated.")
             size = struct.unpack_from("<I", blob, offset)[0]
             offset += 4
             if size > 16384 or offset + size > len(blob):
-                raise ValueError("셀 길이가 잘못되었습니다.")
+                raise ValueError("Invalid output cell length.")
             row.append(blob[offset:offset + size])
             offset += size
         table.append(tuple(row))
     if offset != len(blob):
-        raise ValueError("불필요한 출력이 있습니다.")
+        raise ValueError("Unexpected trailing output.")
     return table[0], table[1:]
 
 
@@ -78,11 +78,11 @@ def verify_output(blob, answer_header, answer_rows, expected_blob=None):
     except ValueError as exc:
         return str(exc)
     if header != tuple(s.encode("utf-8") for s in answer_header):
-        return "CSV 헤더가 변경되었습니다."
+        return "CSV header was changed."
     expected = [tuple(s.encode("utf-8") for s in row) for row in answer_rows]
     if len(actual) != len(expected):
-        return "데이터 행 개수가 정답과 다릅니다."
+        return "Output row count does not match the answer."
     for index, (a, b) in enumerate(zip(actual, expected), 1):
         if a != b:
-            return f"데이터 {index}번째 행이 정답과 다릅니다. (헤더 제외)"
+            return f"Data row {index} does not match the answer (header excluded)."
     return None

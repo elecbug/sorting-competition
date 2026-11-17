@@ -21,12 +21,12 @@ def main():
     database = Database(settings.data_dir)
     os.sched_setaffinity(0, {settings.cpu})
     with database.connect() as db:
-        problems = [dict(r) for r in db.execute("SELECT id,title FROM problems WHERE title LIKE '[샘플]%' ORDER BY id")]
+        problems = [dict(r) for r in db.execute("SELECT id,title FROM problems WHERE title LIKE '[Sample]%' OR title LIKE '[샘플]%' ORDER BY id")]
     if not problems:
-        raise SystemExit("먼저 scripts/import_samples.py 를 실행하세요.")
+        raise SystemExit("Run scripts/import_samples.py first.")
     for problem in problems:
         # This script knows only the default, first-column sample rule.
-        if not problem["title"].endswith("· 1열 정렬"):
+        if not problem["title"].endswith(("· 1열 정렬", "· Column 1")):
             continue
         with tempfile.TemporaryDirectory(prefix="sort-reference-") as directory:
             launcher = str(Path(directory) / "launch")

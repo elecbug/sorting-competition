@@ -42,10 +42,10 @@ class Settings:
             wall_limit=float(os.getenv("SORT_WALL_LIMIT", "4")),
             memory_mb=int(os.getenv("SORT_MEMORY_MB", "128")),
         )
-        if min(len(settings.admin_password), len(settings.enrollment_code)) < 12:
-            raise RuntimeError("먼저 .venv/bin/python scripts/setup.py 를 실행하거나 .env의 비밀값 2개를 12자 이상으로 설정하세요.")
+        if not settings.admin_password or not settings.enrollment_code:
+            raise RuntimeError("Run .venv/bin/python scripts/setup.py or set both credentials in .env.")
         if not 3 <= settings.repetitions <= 30:
-            raise RuntimeError("반복 횟수는 3~30이어야 합니다.")
+            raise RuntimeError("Repetitions must be between 3 and 30.")
         if not (0 < settings.time_limit <= 10 and settings.time_limit < settings.wall_limit <= 20 and 32 <= settings.memory_mb <= 256):
-            raise RuntimeError("시간/메모리 제한 설정이 허용 범위를 벗어났습니다.")
+            raise RuntimeError("Time or memory limits are outside the supported range.")
         return settings

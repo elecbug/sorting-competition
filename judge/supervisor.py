@@ -54,7 +54,7 @@ def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limi
         elif timed_out:
             cpu_ms, memory_kb, exit_code = 0, 0, -signal.SIGKILL
         else:
-            raise RuntimeError("네이티브 측정 프로세스가 결과를 보고하지 못했습니다.")
+            raise RuntimeError("Native measurement process did not report a result.")
         return {
             "exit_code": exit_code, "timed_out": timed_out or cpu_ms > cpu_limit * 1000,
             "time_ms": round(cpu_ms, 4), "memory_kb": memory_kb,
@@ -64,15 +64,15 @@ def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limi
 
 def classify(run):
     if run["timed_out"] or run["exit_code"] == -signal.SIGXCPU:
-        return "time_limit", "CPU 또는 실제 경과 시간 제한을 초과했습니다."
+        return "time_limit", "CPU or wall time limit exceeded."
     if run["exit_code"] == -signal.SIGXFSZ:
-        return "output_limit", "허용된 출력 크기를 초과했습니다."
+        return "output_limit", "Output size limit exceeded."
     if run["exit_code"] == 72:
-        return "memory_limit", "CSV 메모리 할당에 실패했습니다."
+        return "memory_limit", "Failed to allocate CSV memory."
     if run["exit_code"] == 70:
-        return "wrong_answer", "행/열 개수 또는 셀 길이가 변경되었습니다."
+        return "wrong_answer", "Row count, column count, or cell length was changed."
     if run["exit_code"]:
-        return "runtime_error", f"프로그램이 비정상 종료되었습니다. (exit {run['exit_code']})"
+        return "runtime_error", f"Program terminated abnormally (exit {run['exit_code']})."
     return None
 
 
@@ -86,7 +86,7 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
         process_limit=64, work_dir=work_dir, uid=uid, launcher=launcher,
     )
     if compile_run["exit_code"] or compile_run["timed_out"]:
-        return {"status": "compile_error", "passed": 0, "total": total, "cases": [], "message": compile_run["stderr"][:8000] or "컴파일 시간 또는 메모리 제한을 초과했습니다."}
+        return {"status": "compile_error", "passed": 0, "total": total, "cases": [], "message": compile_run["stderr"][:8000] or "Compilation time or memory limit exceeded."}
     if uid is not None:
         os.chown(binary, 0, 0)
     os.chmod(binary, 0o555)
@@ -130,12 +130,12 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
 
 def main():
     if os.getuid() != 0 or not Path("/.dockerenv").exists():
-        raise SystemExit("실제 제출물은 Docker 격리 환경에서만 실행할 수 있습니다.")
+        raise SystemExit("Student submissions may only run inside the Docker sandbox.")
     job = json.load(sys.stdin)
     try:
         result = judge_job(job)
     except Exception:
-        result = {"status": "system_error", "message": "격리 채점기 내부 오류입니다. 관리자에게 문의하세요."}
+        result = {"status": "system_error", "message": "Internal judge error. Contact the administrator."}
     print(json.dumps(result, ensure_ascii=False))
 
 

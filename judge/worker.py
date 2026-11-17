@@ -49,10 +49,10 @@ def execute(settings, source, cases, image_id):
             run = docker(sandbox_args(settings, name, str(path.resolve()), image_id), input=json.dumps(job), timeout=timeout)
             if run.returncode:
                 log.error("Sandbox exited %s: %s", run.returncode, run.stderr[:1000])
-                raise RuntimeError("격리 컨테이너가 종료되었습니다. Docker 상태와 메모리 제한을 확인하세요.")
+                raise RuntimeError("Sandbox container failed. Check Docker and container memory limits.")
             result = json.loads(run.stdout)
             if result.get("status") not in {"accepted", "compile_error", "wrong_answer", "time_limit", "memory_limit", "runtime_error", "output_limit", "system_error"}:
-                raise RuntimeError("격리 채점기의 응답이 올바르지 않습니다.")
+                raise RuntimeError("Invalid response from the sandbox supervisor.")
             return result
         finally:
             docker(["rm", "-f", name], timeout=15)
@@ -60,13 +60,13 @@ def execute(settings, source, cases, image_id):
 
 def ready_profile(settings):
     if settings.cpu not in os.sched_getaffinity(0):
-        raise RuntimeError(f"CPU {settings.cpu}는 이 worker에서 사용할 수 없습니다.")
+        raise RuntimeError(f"CPU {settings.cpu} is unavailable to this worker.")
     version = docker(["info", "--format", "{{.ServerVersion}}"], timeout=10)
     if version.returncode:
-        raise RuntimeError("Docker 실행 권한이 없습니다. deploy/README.md의 worker 설정을 완료하세요.")
+        raise RuntimeError("Docker access denied. Complete the worker setup in deploy/README.md.")
     image = docker(["image", "inspect", "--format", "{{.Id}}", settings.image], timeout=10)
     if image.returncode:
-        raise RuntimeError("채점 이미지가 없습니다. sudo docker build -f judge/Dockerfile -t sorting-judge:local . 를 실행하세요.")
+        raise RuntimeError("Judge image not found. Run sudo docker build -f judge/Dockerfile -t sorting-judge:local .")
     image_id = image.stdout.strip()
     identity = {"version": 1, "image": image_id, "cpu": settings.cpu, "repetitions": settings.repetitions,
                 "time_limit": settings.time_limit, "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb}
@@ -82,9 +82,9 @@ def main():
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        raise SystemExit("동시 채점을 막기 위해 worker는 한 개만 실행할 수 있습니다.")
+        raise SystemExit("Only one worker can run against this database.")
     stop = threading.Event()
-    state = {"status": "starting", "message": "채점기를 준비하고 있습니다."}
+    state = {"status": "starting", "message": "Preparing the judge worker."}
 
     def heartbeat():
         while not stop.is_set():
@@ -104,7 +104,7 @@ def main():
                 try:
                     base, image_id = ready_profile(settings)
                     database.set_meta("base_profile", base)
-                    state.update(status="ready", message="순차 채점 대기 중")
+                    state.update(status="ready", message="Waiting for submissions.")
                 except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
                     base = None
                     state.update(status="blocked", message=str(exc))
@@ -122,21 +122,21 @@ def main():
                 continue
             cases = load_cases(database, row["problem_id"])
             profile = problem_profile(base, cases)
-            state.update(status="running", message=f"제출 #{row['id']} 채점 중")
+            state.update(status="running", message=f"Judging submission #{row['id']}")
             try:
                 if not cases:
-                    raise RuntimeError("이 문제에 원본/정답 CSV가 등록되어 있지 않습니다.")
+                    raise RuntimeError("No input/answer CSV pairs are registered for this problem.")
                 result = execute(settings, row["source"], cases, image_id)
             except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
                 log.exception("Submission %s failed", row["id"])
                 result = {"status": "system_error", "message": str(exc)}
             with database.connect() as db:
                 db.execute("UPDATE submissions SET status=?, result=?, profile=?, finished_at=? WHERE id=?", (result["status"], json.dumps(result, ensure_ascii=False), profile, time.time(), row["id"]))
-            state.update(status="ready", message="순차 채점 대기 중")
+            state.update(status="ready", message="Waiting for submissions.")
     finally:
         stop.set()
         thread.join(timeout=5)
-        database.set_meta("worker", {"status": "offline", "message": "채점기가 종료되었습니다.", "updated_at": time.time()})
+        database.set_meta("worker", {"status": "offline", "message": "Judge worker stopped.", "updated_at": time.time()})
         lock.close()
 
 

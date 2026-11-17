@@ -6,7 +6,7 @@ from conftest import register_student
 def test_page_and_no_fake_results(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert "CSV Sorting" in response.text
+    assert "Sorting Competition" in response.text
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
     assert client.get("/api/problems").json()["problems"] == []
     assert client.get("/api/health").json()["ready"] is False

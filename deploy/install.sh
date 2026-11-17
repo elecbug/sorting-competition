@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
-  echo "sudo bash deploy/install.sh 로 실행하세요."
+  echo "Run sudo bash deploy/install.sh."
   exit 1
 fi
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 service_user="${SUDO_USER:-}"
 if [[ -z "$service_user" || "$service_user" == root ]]; then
-  echo "서비스를 운영할 일반 계정에서 sudo bash deploy/install.sh 를 실행하세요."
+  echo "Run sudo bash deploy/install.sh from the intended non-root service account."
   exit 1
 fi
 if [[ ! -x "$project_dir/.venv/bin/python" || ! -f "$project_dir/.env" ]]; then
-  echo "먼저 uv sync 및 .venv/bin/python scripts/setup.py 를 실행하세요."
+  echo "Run uv sync and .venv/bin/python scripts/setup.py first."
   exit 1
 fi
 if ! getent group docker >/dev/null; then
-  echo "Docker Engine 및 docker 그룹이 필요합니다."
+  echo "Docker Engine and the docker group are required."
   exit 1
 fi
 cd "$project_dir"
@@ -58,4 +58,4 @@ EOF
 done
 systemctl daemon-reload
 systemctl enable --now sorting-arena-web.service sorting-arena-worker.service
-echo "설치 완료. systemctl status sorting-arena-web sorting-arena-worker 로 확인하세요."
+echo "Installed. Check systemctl status sorting-arena-web sorting-arena-worker."

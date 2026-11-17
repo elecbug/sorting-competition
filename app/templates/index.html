@@ -1,77 +1,78 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f7f2">
-  <meta name="description" content="CSV 정렬 알고리즘 제출, 자동 채점, 성능 비교를 위한 KMU Sorting Arena">
-  <title>SORT / CSV Sorting Arena</title>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sorting Competition</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <script src="/static/i18n.js" defer></script><script src="/static/app.js" defer></script>
 </head>
 <body>
 <header class="topbar">
-  <a href="/" class="brand" aria-label="Sorting Arena 홈"><span class="brand-mark">s/</span><strong>SORT<span class="brand-light"> ARENA</span></strong></a>
-  <span class="topbar-label">KMU <span> / </span> ALGORITHM LAB</span>
-  <div class="topbar-right"><span class="worker-indicator" id="worker-indicator"><i></i><span>채점기 확인 중</span></span><button class="button dark small" id="auth-button">로그인 <span>↗</span></button></div>
+  <a href="/" class="brand">Sorting Competition</a>
+  <div class="topbar-right">
+    <span class="worker-indicator" id="worker-indicator"><i></i><span data-i18n="checkingJudge">Checking judge</span></span>
+    <label class="sr-only" for="language-select" data-i18n="language">Language</label>
+    <select id="language-select" aria-label="Language"><option value="en">English</option><option value="ko">한국어</option><option value="zh">中文</option><option value="vi">Tiếng Việt</option><option value="ru">Русский</option></select>
+    <button class="button dark small" id="auth-button" data-i18n="signIn">Sign in</button>
+  </div>
 </header>
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="sidebar-label">WORKSPACE <span>01</span></div>
-    <div class="workspace-title">CSV Sorting<br>Competition<span class="tiny-tag">C11</span></div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-label">문제 목록 <span id="problem-count">00</span></div>
-    <nav id="problem-list" aria-label="문제 선택"><p class="muted">문제를 불러오는 중...</p></nav>
-    <button class="sidebar-help" id="guide-button"><span>⌘</span> 제출 인터페이스 안내 <span>↗</span></button>
-    <div class="sidebar-bottom"><span class="status-dot"></span> 같은 환경. 공정한 비교.<p>GCC · 고정 CPU · 순차 실행</p><small>Sorting Arena v0.1</small></div>
+    <div class="sidebar-label"><span data-i18n="problems">Problems</span><span id="problem-count">0</span></div>
+    <nav id="problem-list" aria-label="Problems"><p class="muted" data-i18n="loading">Loading…</p></nav>
+    <button class="sidebar-help" id="guide-button" data-i18n="interfaceGuide">Submission interface</button>
   </aside>
   <main>
-    <div class="page-kicker"><span class="orange-line"></span> THE SORTING CHALLENGE <span id="profile-label"></span></div>
-    <div class="page-heading"><div><h1>더 정확하게.<br>더 효율적으로<span class="orange">.</span></h1><p>C로 구현하고, 데이터로 증명하세요.</p></div><div class="hero-art" aria-hidden="true"><span>01</span><span>04</span><span>02</span><span>03</span><div>UNSORTED <b>→</b> SORTED</div></div></div>
     <div id="worker-notice" class="notice" hidden></div>
-    <nav class="tabs" aria-label="작업 메뉴"><button data-tab="problem" class="active">문제 & 제출</button><button data-tab="leaderboard">순위표 <span>↗</span></button><button data-tab="history">제출 기록</button><button data-tab="admin" id="admin-tab" hidden>운영 관리</button><span class="tabs-tail">LIVE <i></i></span></nav>
+    <nav class="tabs" aria-label="Views"><button data-tab="problem" class="active" data-i18n="problemSubmit">Problem & submit</button><button data-tab="leaderboard" data-i18n="leaderboard">Leaderboard</button><button data-tab="history" data-i18n="submissions">Submissions</button><button data-tab="admin" id="admin-tab" hidden>Administration</button></nav>
     <section id="panel-problem" class="panel">
-      <div id="no-problem" class="empty large"><span>↳</span><h2>첫 번째 문제를 기다리고 있어요.</h2><p>관리자로 로그인해 문제와 원본·정답 CSV를 등록하세요.</p></div>
+      <div id="no-problem" class="empty"><p data-i18n="noProblems">No problems published.</p></div>
       <div id="problem-content" class="problem-grid" hidden>
         <div class="problem-left">
-          <article class="card problem-card"><div class="eyebrow"><span id="problem-number">PROBLEM 01</span><span id="problem-open" class="badge">접수 중</span></div><h2 id="problem-title"></h2><p id="problem-description" class="description"></p><div class="limit-row"><span><small>CPU TIME</small><b id="limit-time">2 s</b></span><span><small>PEAK RSS</small><b id="limit-memory">128 MB</b></span><span><small>REPEAT</small><b id="limit-repeat">10 회</b></span></div></article>
-          <article class="card dataset-card"><div class="section-title"><h3>문제 데이터</h3><span class="muted mono">.CSV</span></div><div id="dataset-list"></div><p class="footnote">원본을 다운로드해 알고리즘을 설계하세요. 정답 CSV는 채점기에만 제공됩니다.</p></article>
-          <div class="scoring-note"><span>60 <small>정확성</small></span><span>30 <small>실행 시간</small></span><span>10 <small>메모리</small></span><p>모든 테스트를 통과하면 성능 점수와 순위가 부여됩니다.</p></div>
+          <article class="card problem-card"><div class="eyebrow"><span id="problem-number"></span><span id="problem-open" class="badge"></span></div><h2 id="problem-title"></h2><p id="problem-description" class="description"></p><div class="limit-row"><span><small data-i18n="cpuTime">CPU time</small><b id="limit-time">2 s</b></span><span><small data-i18n="memory">Memory</small><b id="limit-memory">128 MiB</b></span><span><small data-i18n="repetitions">Repetitions</small><b id="limit-repeat">10</b></span></div></article>
+          <article class="card dataset-card"><div class="section-title"><h3 data-i18n="inputData">Input data</h3></div><div id="dataset-list"></div></article>
+          <p class="scoring-summary" data-i18n="scoreWeights">Correctness 60 · Time 30 · Memory 10</p>
         </div>
-        <article class="card editor-card"><div class="section-title"><h3>코드 제출</h3><span class="file-label"><i></i> student_sort.c</span></div><div class="editor-toolbar"><span>C11 <span class="muted">/ GCC -O2</span></span><div><a href="/api/download/student_sort.c">템플릿 ↓</a><button class="text-button" id="file-button">파일 불러오기 ↗</button><input id="source-file" type="file" accept=".c,text/plain" hidden></div></div><label class="sr-only" for="source-code">제출할 C 소스 코드</label><textarea id="source-code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="source-help">#include "csv_sort.h"
+        <article class="card editor-card"><div class="section-title"><h3 data-i18n="submitCode">Submit code</h3><span class="file-label">student_sort.c</span></div><div class="editor-toolbar"><span>C11 / GCC -O2</span><div><a href="/api/download/student_sort.c" data-i18n="template">Template ↓</a><button class="text-button" id="file-button" data-i18n="loadFile">Load .c file</button><input id="source-file" type="file" accept=".c,text/plain" hidden></div></div><label class="sr-only" for="source-code" data-i18n="cSource">C source code</label><textarea id="source-code" spellcheck="false" autocapitalize="off" autocomplete="off">#include "csv_sort.h"
 
 void student_sort(rows *table) {
-    // 문제의 조건에 맞게 table->rows를 정렬하세요.
+    // Sort table->rows according to the problem.
 
 }
-</textarea><div class="editor-footer"><span id="line-count">7 lines</span><span>UTF-8 · 함수 제출</span></div><div class="submit-bottom"><p id="source-help">CSV 파싱은 채점기가 처리합니다.<br>헤더와 셀 내용은 그대로 보존하세요.</p><button class="button orange-button" id="submit-button">코드 제출 <span>→</span></button></div><div class="inline-message" id="submit-message" role="status" hidden></div></article>
+</textarea><div class="editor-footer"><span id="line-count"></span><span>UTF-8</span></div><div class="submit-bottom"><p data-i18n="preserveData">Preserve the header and cell contents.</p><button class="button orange-button" id="submit-button" data-i18n="submit">Submit</button></div><div class="inline-message" id="submit-message" role="status" hidden></div></article>
       </div>
     </section>
-    <section id="panel-leaderboard" class="panel" hidden><div class="metrics"><article><span>PARTICIPANTS</span><strong id="metric-participants">0<small>명</small></strong><p>현재 기준 채점 완료</p></article><article><span>ACCEPTED</span><strong id="metric-accepted">0<small>명</small></strong><p>모든 정답 일치</p></article><article><span>FASTEST CPU TIME</span><strong id="metric-fastest">—</strong><p>테스트별 중앙값의 합</p></article><article><span>LOWEST PEAK RSS</span><strong id="metric-memory">—</strong><p>공통 실행 코드 포함</p></article></div><article class="card"><div class="section-title board-title"><div><div class="eyebrow">LEADERBOARD</div><h2 id="leaderboard-title">순위표</h2></div><a id="export-button" class="button outline small" hidden>CSV 내보내기 ↓</a></div><div class="table-wrap"><table><thead><tr><th>순위</th><th>참가자</th><th>통과</th><th>CPU 시간 <small>ms</small></th><th>Peak RSS <small>MiB</small></th><th>점수 <small>/100</small></th></tr></thead><tbody id="leaderboard-body"></tbody></table></div><div id="leaderboard-empty" class="empty"><span>↗</span><h3>첫 기록의 주인공이 되어보세요.</h3><p>채점이 완료되면 이곳에 순위가 표시됩니다.</p></div><div class="board-footnote"><span class="status-dot"></span> 5초마다 갱신 <p>학생별 최신 채점 완료 제출 기준 · 종합 0.1점 이내 동순위<br>시간·메모리 개별 순위는 제출 상세와 CSV에서 확인할 수 있습니다.</p></div></article><div class="method-note"><strong>측정 기준</strong><p>동일 CPU에서 하나씩 실행합니다. 테스트별 1회 준비 실행 후 반복 측정한 CPU 시간의 중앙값을 더합니다. 시간에는 공통 데이터 로딩·결과 출력이, Peak RSS에는 입력 데이터와 공통 실행 코드가 포함됩니다. 성능 점수는 현재 참가자의 최고 기록 대비 상대 점수입니다.</p></div></section>
-    <section id="panel-history" class="panel" hidden><article class="card"><div class="section-title"><h2 id="history-title">나의 제출 기록</h2><span class="muted">최근 100건</span></div><div class="table-wrap"><table><thead><tr><th>제출</th><th>참가자</th><th>상태</th><th>CPU / 메모리</th><th>제출 시각</th><th></th></tr></thead><tbody id="history-body"></tbody></table></div><div id="history-empty" class="empty"><span>⌁</span><h3>제출 기록이 없습니다.</h3><p>로그인하고 첫 코드를 제출해보세요.</p></div></article></section>
-    <section id="panel-admin" class="panel" hidden><div class="admin-top"><article class="card"><div class="section-title"><h3>수업 참여 코드</h3><button id="copy-invite" class="text-button">복사 ↗</button></div><code id="invite-code"></code><p class="footnote">이 코드를 받은 학생만 가입할 수 있습니다.</p></article><article class="card"><div class="section-title"><h3>전체 제출 접수</h3><button id="toggle-submissions" class="button outline small">확인 중</button></div><p id="admin-worker" class="footnote"></p></article></div><div class="admin-grid"><article class="card"><div class="section-title"><h3 id="problem-form-title">새 문제 등록</h3><button class="text-button" id="new-problem-button">+ 새 문제</button></div><form id="problem-form"><label>문제 제목<input name="title" required maxlength="100" placeholder="예: 이름으로 오름차순 정렬"></label><label>문제 설명<textarea name="description" rows="7" required maxlength="10000" placeholder="정렬 기준 열, 비교 방식, 동률 처리 규칙을 명시하세요."></textarea></label><label class="checkbox"><input name="is_open" type="checkbox" checked> 제출 접수</label><button class="button dark" type="submit">문제 저장 →</button><p class="inline-message" id="problem-form-message" role="status" hidden></p></form></article><article class="card"><div class="section-title"><h3>원본 · 정답 CSV 등록</h3><span class="tiny-tag">PAIR</span></div><p class="footnote">왼쪽에서 문제를 선택한 뒤 파일 쌍을 추가하세요. 정답의 행 순서 그대로 채점합니다.</p><form id="testcase-form"><label>테스트 이름<input name="title" required maxlength="80" placeholder="예: 공개 데이터 01"></label><label>원본 CSV <small>학생 코드에 전달할 파일</small><input name="input_file" type="file" accept=".csv,text/csv" required></label><label>정답 CSV <small>학생에게 공개되지 않습니다</small><input name="answer_file" type="file" accept=".csv,text/csv" required></label><label class="checkbox"><input name="is_public" type="checkbox" checked> 학생에게 원본 다운로드 허용</label><button class="button orange-button" type="submit">데이터 쌍 추가 <span>+</span></button><p class="inline-message" id="testcase-form-message" role="status" hidden></p></form><div class="admin-case-list" id="admin-case-list"></div><p class="footnote">UTF-8 · 파일당 2 MiB · 최대 100,000행 / 32열<br>데이터 추가·삭제 시 새 측정 기준으로 순위표가 구분됩니다. 이전 제출은 운영자가 재채점할 수 있습니다.</p></article></div><article class="card student-card"><div class="section-title"><h3>참가 학생</h3><span id="student-count" class="muted"></span></div><div id="student-list" class="student-list"></div></article></section>
-    <footer class="page-footer"><span>SORT ARENA <span class="orange">/</span> KMU</span><span>알고리즘을 배우고, 차이를 측정하는 곳.</span></footer>
+    <section id="panel-leaderboard" class="panel" hidden>
+      <div class="metrics"><article><span data-i18n="participants">Participants</span><strong id="metric-participants">0</strong></article><article><span data-i18n="accepted">Accepted</span><strong id="metric-accepted">0</strong></article><article><span data-i18n="fastestTime">Fastest CPU time</span><strong id="metric-fastest">—</strong></article><article><span data-i18n="lowestMemory">Lowest Peak RSS</span><strong id="metric-memory">—</strong></article></div>
+      <article class="card"><div class="section-title"><h2 id="leaderboard-title" data-i18n="leaderboard">Leaderboard</h2><a id="export-button" class="button outline small" hidden>Export CSV ↓</a></div><div class="table-wrap"><table><thead><tr><th data-i18n="rank">Rank</th><th data-i18n="participant">Participant</th><th data-i18n="passed">Passed</th><th data-i18n="cpuMs">CPU (ms)</th><th>Peak RSS (MiB)</th><th data-i18n="score">Score / 100</th></tr></thead><tbody id="leaderboard-body"></tbody></table></div><div id="leaderboard-empty" class="empty"><p data-i18n="noResults">No results yet.</p></div><p class="footnote" data-i18n="rankingPolicy">Latest completed submission per student. All tests must pass to receive a rank. Scores within 0.1 points share a rank.</p></article>
+      <p class="method-note" data-i18n="measurementPolicy">Time: sum of per-test CPU medians. Memory: highest Peak RSS. Shared loading and output code are included. Performance scores are relative to current participants.</p>
+    </section>
+    <section id="panel-history" class="panel" hidden><article class="card"><div class="section-title"><h2 id="history-title" data-i18n="mySubmissions">My submissions</h2><span class="muted" data-i18n="latest100">Latest 100</span></div><div class="table-wrap"><table><thead><tr><th data-i18n="submission">Submission</th><th data-i18n="participant">Participant</th><th data-i18n="status">Status</th><th data-i18n="timeMemory">CPU / Memory</th><th data-i18n="submittedAt">Submitted</th><th></th></tr></thead><tbody id="history-body"></tbody></table></div><div id="history-empty" class="empty"><p data-i18n="noSubmissions">No submissions.</p></div></article></section>
+    <section id="panel-admin" class="panel" hidden>
+      <div class="admin-top"><article class="card"><div class="section-title"><h3>Class code</h3><button id="copy-invite" class="text-button">Copy</button></div><code id="invite-code"></code></article><article class="card"><div class="section-title"><h3>Submissions</h3><button id="toggle-submissions" class="button outline small">Loading…</button></div><p id="admin-worker" class="footnote"></p></article></div>
+      <div class="admin-grid"><article class="card"><div class="section-title"><h3 id="problem-form-title">New problem</h3><button class="text-button" id="new-problem-button">+ New problem</button></div><form id="problem-form"><label>Content language<select id="problem-language"><option value="en">English (base)</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="vi">Vietnamese</option><option value="ru">Russian</option></select></label><label>Title<input name="title" required maxlength="100"></label><label>Description<textarea name="description" rows="7" required maxlength="10000" placeholder="Specify sort columns, comparison rules, and tie-breaking."></textarea></label><p class="footnote">Missing translations use English. CSV contents are never translated.</p><label class="checkbox"><input name="is_open" type="checkbox" checked> Accept submissions</label><button class="button dark" type="submit">Save problem</button><p class="inline-message" id="problem-form-message" role="status" hidden></p></form></article>
+      <article class="card"><div class="section-title"><h3>Input / answer CSV</h3></div><form id="testcase-form"><label>Test name<input name="title" required maxlength="80"></label><label>Input CSV<input name="input_file" type="file" accept=".csv,text/csv" required></label><label>Answer CSV<input name="answer_file" type="file" accept=".csv,text/csv" required></label><label class="checkbox"><input name="is_public" type="checkbox" checked> Allow students to download the input</label><button class="button orange-button" type="submit">Add test pair</button><p class="inline-message" id="testcase-form-message" role="status" hidden></p></form><div class="admin-case-list" id="admin-case-list"></div><p class="footnote">UTF-8 · 32 MiB per file · 100,000 rows · 64 columns.<br>Answers remain private. Changing tests starts a new leaderboard profile.</p></article></div>
+      <article class="card student-card"><div class="section-title"><h3>Students</h3><span id="student-count" class="muted"></span></div><div id="student-list" class="student-list"></div></article>
+    </section>
   </main>
 </div>
-<dialog id="auth-dialog"><div class="dialog-head"><div><div class="eyebrow">WELCOME TO THE ARENA</div><h2 id="auth-title">다시 만나 반가워요.</h2></div><button class="close-button" data-close="auth-dialog" aria-label="닫기">×</button></div><div class="auth-tabs"><button class="active" data-auth-mode="login">로그인</button><button data-auth-mode="register">수업 참여</button></div><form id="auth-form"><label>학번 / 아이디<input name="student_id" autocomplete="username" pattern="[A-Za-z0-9_-]{3,30}" required placeholder="학번 또는 admin"></label><label class="register-only" hidden>표시 이름<input name="nickname" minlength="2" maxlength="30" placeholder="순위표에 표시할 이름"></label><label>비밀번호<input name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" required placeholder="10자 이상"></label><label class="register-only" hidden>수업 참여 코드<input name="enrollment_code" autocomplete="off" placeholder="교수자에게 받은 코드"></label><p id="auth-error" class="inline-message" role="alert" hidden></p><button type="submit" class="button orange-button wide" id="auth-submit">로그인 →</button></form><p class="footnote">순위표에는 표시 이름만 공개됩니다.</p></dialog>
-<dialog id="guide-dialog" class="wide-dialog"><div class="dialog-head"><div><div class="eyebrow">SUBMISSION GUIDE</div><h2>CSV는 준비되어 있습니다.</h2></div><button class="close-button" data-close="guide-dialog" aria-label="닫기">×</button></div><p>다음 구조를 그대로 사용합니다. <code>csv_sort.h</code>를 포함하고, <code>student_sort</code> 함수만 작성하세요. CSV 파싱과 결과 검증은 채점기가 수행합니다.</p><pre><code>typedef struct {
-    char *text;
-} string;
+<dialog id="auth-dialog"><div class="dialog-head"><h2 id="auth-title" data-i18n="signIn">Sign in</h2><button class="close-button" data-close="auth-dialog" aria-label="Close">×</button></div><div class="auth-tabs"><button class="active" data-auth-mode="login" data-i18n="signIn">Sign in</button><button data-auth-mode="register" data-i18n="register">Register</button></div><form id="auth-form"><label><span data-i18n="studentId">Student ID</span><input name="student_id" autocomplete="username" pattern="[A-Za-z0-9_\-]{3,30}" required></label><label class="register-only" hidden><span data-i18n="displayName">Display name</span><input name="nickname" minlength="2" maxlength="30"></label><label><span data-i18n="password">Password</span><input name="password" type="password" autocomplete="current-password" minlength="1" maxlength="128" required></label><label class="register-only" hidden><span data-i18n="classCode">Class code</span><input name="enrollment_code" autocomplete="off"></label><p id="auth-error" class="inline-message" role="alert" hidden></p><button type="submit" class="button orange-button wide" id="auth-submit" data-i18n="signIn">Sign in</button></form></dialog>
+<dialog id="guide-dialog" class="wide-dialog"><div class="dialog-head"><h2 data-i18n="interfaceGuide">Submission interface</h2><button class="close-button" data-close="guide-dialog" aria-label="Close">×</button></div><p data-i18n="guideIntro">Include csv_sort.h and implement student_sort only. CSV parsing is provided.</p><pre><code>typedef struct { char *text; } string;
 
 typedef struct {
     string *data;
-    size_t count;     // 열 개수
+    size_t count;  // columns
 } row;
 
 typedef struct {
-    row header;       // CSV 첫 번째 행
-    row *rows;        // 데이터 행
-    size_t count;     // 헤더 제외 행 개수
+    row header;
+    row *rows;
+    size_t count;  // data rows, excluding header
 } rows;
 
-void student_sort(rows *table);</code></pre><p>각 셀은 UTF-8 문자열입니다. 정렬 기준은 문제 설명에 따릅니다. 헤더, 행 개수, 셀 내용을 보존하고, <code>table->rows</code>의 순서를 바꾸세요. 열 번호는 C에서 0부터 시작합니다.</p><p>결과는 교수자의 정답 CSV와 셀 내용 및 행 순서까지 정확히 비교합니다. 같은 키의 행은 문제의 동률 규칙을 따라야 합니다. <code>main()</code>이나 표준 출력 코드는 작성하지 마세요. 지역 파일·네트워크 접근과 추가 프로세스 생성은 제한됩니다.</p><div class="guide-links"><a href="/api/download/csv_sort.h" class="button outline">헤더 다운로드 ↓</a><a href="/api/download/student_sort.c" class="button dark">제출 템플릿 ↓</a></div><p class="footnote">실행 시간 1% 이내, Peak RSS 1 MiB 이내는 각각 개별 순위에서 동순위입니다. 종합 순위는 0.1점 이내를 동순위로 처리합니다. 아주 작은 CSV는 공통 코드 비용과 측정 변동의 영향이 큽니다.</p></dialog>
-<dialog id="detail-dialog" class="wide-dialog"><div class="dialog-head"><div><div class="eyebrow">SUBMISSION REPORT</div><h2 id="detail-title">제출 상세</h2></div><button class="close-button" data-close="detail-dialog" aria-label="닫기">×</button></div><div id="detail-content"></div></dialog>
+void student_sort(rows *table);</code></pre><p data-i18n="guideRules">Sort table->rows according to the problem. Preserve the header, row count, and cell contents. Cells are UTF-8 strings. C column indices start at 0.</p><p data-i18n="guideAnswer">Cell contents and row order must match the answer exactly, including rows with equal keys. Do not write main() or print output.</p><div class="guide-links"><a href="/api/download/csv_sort.h" class="button outline" data-i18n="downloadHeader">Download header</a><a href="/api/download/student_sort.c" class="button dark" data-i18n="downloadTemplate">Download template</a></div><p class="footnote" data-i18n="tiePolicy">Separate time ranks allow 1% ties; memory ranks allow 1 MiB ties. Tiny datasets are more affected by shared runtime overhead.</p></dialog>
+<dialog id="detail-dialog" class="wide-dialog"><div class="dialog-head"><h2 id="detail-title" data-i18n="submission">Submission</h2><button class="close-button" data-close="detail-dialog" aria-label="Close">×</button></div><div id="detail-content"></div></dialog>
 <div id="toast" role="status" hidden></div>
 </body>
 </html>

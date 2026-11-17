@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import time
 from urllib.parse import urlsplit
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -37,7 +38,7 @@ class BodyLimit:
                 return
             body.extend(message.get("body", b""))
             if len(body) > maximum:
-                return await JSONResponse({"detail": "요청 파일이 너무 큽니다."}, status_code=413)(scope, receive, send)
+                return await JSONResponse({"detail": "Request body is too large."}, status_code=413)(scope, receive, send)
             if not message.get("more_body", False):
                 break
         sent = False
@@ -56,10 +57,11 @@ class Payload(BaseModel):
 
 class Login(Payload):
     student_id: str = Field(pattern=r"^[A-Za-z0-9_-]{3,30}$")
-    password: str = Field(min_length=10, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class Registration(Login):
+    password: str = Field(min_length=10, max_length=128)
     nickname: str = Field(min_length=2, max_length=30)
     enrollment_code: str = Field(min_length=1, max_length=128)
 
@@ -69,10 +71,16 @@ class Submission(Payload):
     source: str = Field(min_length=1, max_length=65536)
 
 
+class ProblemTranslation(Payload):
+    title: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=10000)
+
+
 class ProblemPayload(Payload):
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10000)
     is_open: bool = True
+    translations: dict[Literal["ko", "zh", "vi", "ru"], ProblemTranslation] = Field(default_factory=dict)
 
 
 class TestcasePayload(Payload):
@@ -97,13 +105,13 @@ def current_user(request: Request):
 
 def require_user(user=Depends(current_user)):
     if user is None:
-        raise HTTPException(401, "로그인이 필요합니다.")
+        raise HTTPException(401, "Sign in to continue.")
     return user
 
 
 def require_admin(user=Depends(require_user)):
     if user["role"] != "admin":
-        raise HTTPException(403, "관리자만 사용할 수 있습니다.")
+        raise HTTPException(403, "Administrator access required.")
     return user
 
 
@@ -112,9 +120,9 @@ def public_user(user):
 
 
 def worker_status(database):
-    state = database.get_meta("worker", {"status": "offline", "message": "채점기가 아직 연결되지 않았습니다.", "updated_at": 0})
+    state = database.get_meta("worker", {"status": "offline", "message": "Judge worker is not connected.", "updated_at": 0})
     if time.time() - state["updated_at"] > 20:
-        state.update(status="offline", message="채점기가 연결되지 않았습니다. 제출물은 대기열에 보관됩니다.")
+        state.update(status="offline", message="Judge worker is offline. Submissions remain queued.")
     return state
 
 
@@ -124,10 +132,11 @@ def create_app(settings=None):
     with database.connect() as db:
         admin = db.execute("SELECT * FROM users WHERE student_id='admin'").fetchone()
         if not admin:
-            db.execute("INSERT INTO users(student_id,nickname,password,role,created_at) VALUES ('admin','운영자',?,'admin',?)", (hash_password(settings.admin_password), time.time()))
+            db.execute("INSERT INTO users(student_id,nickname,password,role,created_at) VALUES ('admin','Administrator',?,'admin',?)", (hash_password(settings.admin_password), time.time()))
         elif not verify_password(settings.admin_password, admin["password"]):
             db.execute("UPDATE users SET password=? WHERE id=?", (hash_password(settings.admin_password), admin["id"]))
             db.execute("DELETE FROM sessions WHERE user_id=?", (admin["id"],))
+        db.execute("UPDATE users SET nickname='Administrator' WHERE student_id='admin'")
     dummy_password = hash_password(secrets.token_urlsafe(20))
     app = FastAPI(title="SORT / CSV Sorting Arena", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db = database
@@ -141,11 +150,11 @@ def create_app(settings=None):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             if request.headers.get("x-requested-with") != "SortingLab" or (origin and urlsplit(origin).netloc != request.headers.get("host")):
-                return JSONResponse({"detail": "요청 출처를 확인할 수 없습니다."}, status_code=403)
+                return JSONResponse({"detail": "Invalid request origin."}, status_code=403)
             if request.url.path.endswith("/testcases"):
                 user = current_user(request)
                 if not user or user["role"] != "admin":
-                    return JSONResponse({"detail": "관리자만 사용할 수 있습니다."}, status_code=403)
+                    return JSONResponse({"detail": "Administrator access required."}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -159,7 +168,7 @@ def create_app(settings=None):
         with database.connect() as db:
             row = db.execute("SELECT * FROM problems WHERE id=?", (problem_id,)).fetchone()
         if not row:
-            raise HTTPException(404, "문제를 찾을 수 없습니다.")
+            raise HTTPException(404, "Problem not found.")
         return dict(row)
 
     def profile_for(problem_id):
@@ -182,28 +191,28 @@ def create_app(settings=None):
     def register(payload: Registration, request: Request):
         ip = request.client.host if request.client else "unknown"
         if not database.rate_limit(f"register:{ip}", 10, 3600):
-            raise HTTPException(429, "가입 요청이 많습니다. 잠시 후 다시 시도하세요.")
+            raise HTTPException(429, "Too many registration attempts. Try again later.")
         if not hmac.compare_digest(payload.enrollment_code.encode(), settings.enrollment_code.encode()):
-            raise HTTPException(400, "수업 참여 코드가 올바르지 않습니다.")
+            raise HTTPException(400, "Invalid class code.")
         nickname = payload.nickname.strip()
         if len(nickname) < 2:
-            raise HTTPException(400, "표시 이름을 2자 이상 입력하세요.")
+            raise HTTPException(400, "Display name must contain at least 2 characters.")
         try:
             with database.connect() as db:
                 db.execute("INSERT INTO users(student_id,nickname,password,created_at) VALUES (?,?,?,?)", (payload.student_id, nickname, hash_password(payload.password), time.time()))
         except sqlite3.IntegrityError:
-            raise HTTPException(409, "이미 등록된 학번/아이디입니다.")
+            raise HTTPException(409, "This student ID is already registered.")
         return {"ok": True}
 
     @app.post("/api/login")
     def login(payload: Login, request: Request):
         ip = request.client.host if request.client else "unknown"
         if not database.rate_limit(f"login-ip:{ip}", 100, 300) or not database.rate_limit(f"login-user:{payload.student_id}", 15, 300):
-            raise HTTPException(429, "로그인 시도가 많습니다. 5분 후 다시 시도하세요.")
+            raise HTTPException(429, "Too many sign-in attempts. Try again in 5 minutes.")
         with database.connect() as db:
             user = db.execute("SELECT * FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
         if not verify_password(payload.password, user["password"] if user else dummy_password) or not user:
-            raise HTTPException(401, "학번/아이디 또는 비밀번호를 확인하세요.")
+            raise HTTPException(401, "Incorrect student ID or password.")
         token = secrets.token_urlsafe(32)
         lifetime = 43200 if user["role"] == "admin" else 604800
         with database.connect() as db:
@@ -227,12 +236,15 @@ def create_app(settings=None):
             items = [dict(r) for r in db.execute("""SELECT p.*, (SELECT COUNT(*) FROM testcases t WHERE t.problem_id=p.id) test_count,
                 (SELECT COUNT(DISTINCT s.user_id) FROM submissions s JOIN users u ON u.id=s.user_id WHERE s.problem_id=p.id AND u.role='student') participants
                 FROM problems p ORDER BY p.id""")]
+        for item in items:
+            item["translations"] = json.loads(item["translations"])
         return {"problems": items, "worker": worker_status(database), "submissions_open": database.get_meta("submissions_open", True),
                 "limits": {"repetitions": settings.repetitions, "time_seconds": settings.time_limit, "memory_mb": settings.memory_mb}}
 
     @app.get("/api/problems/{problem_id}")
     def problem_detail(problem_id: int):
         problem = problem_or_404(problem_id)
+        problem["translations"] = json.loads(problem["translations"])
         with database.connect() as db:
             cases = [dict(r) for r in db.execute("SELECT id,title,is_public,row_count,column_count FROM testcases WHERE problem_id=? ORDER BY id", (problem_id,))]
         problem["testcases"] = cases
@@ -264,7 +276,7 @@ def create_app(settings=None):
         with database.connect() as db:
             case = db.execute("SELECT * FROM testcases WHERE id=? AND problem_id=?", (case_id, problem_id)).fetchone()
         if not case or (not case["is_public"] and (not user or user["role"] != "admin")):
-            raise HTTPException(404, "공개 원본 파일이 없습니다.")
+            raise HTTPException(404, "Public input file not found.")
         return Response(case["input_csv"], media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="problem-{problem_id}-input-{case_id}.csv"'})
 
     @app.get("/api/download/{filename}")
@@ -276,23 +288,23 @@ def create_app(settings=None):
     @app.post("/api/submissions", status_code=201)
     def submit(payload: Submission, user=Depends(require_user)):
         if len(payload.source.encode()) > 65536:
-            raise HTTPException(400, "소스 코드는 UTF-8 기준 64 KiB 이하여야 합니다.")
+            raise HTTPException(400, "Source code must not exceed 64 KiB in UTF-8.")
         with database.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             problem = db.execute("SELECT * FROM problems WHERE id=?", (payload.problem_id,)).fetchone()
             opened = json.loads(db.execute("SELECT value FROM metadata WHERE key='submissions_open'").fetchone()[0])
             if not problem or not problem["is_open"] or not opened:
-                raise HTTPException(400, "현재 제출할 수 없는 문제입니다.")
+                raise HTTPException(400, "Submissions are closed for this problem.")
             if not db.execute("SELECT 1 FROM testcases WHERE problem_id=?", (payload.problem_id,)).fetchone():
-                raise HTTPException(400, "아직 채점 데이터가 등록되지 않았습니다.")
+                raise HTTPException(400, "No test data has been registered.")
             pending = db.execute("SELECT COUNT(*) FROM submissions WHERE user_id=? AND status IN ('queued','running')", (user["id"],)).fetchone()[0]
             if pending >= 2:
-                raise HTTPException(429, "동시에 대기할 수 있는 제출물은 2개입니다.")
+                raise HTTPException(429, "You can have at most 2 pending submissions.")
             last = db.execute("SELECT MAX(created_at) FROM submissions WHERE user_id=?", (user["id"],)).fetchone()[0]
             if last and time.time() - last < 20:
-                raise HTTPException(429, "제출 간격은 20초입니다. 잠시 후 다시 제출하세요.")
+                raise HTTPException(429, "Wait 20 seconds between submissions.")
             if db.execute("SELECT COUNT(*) FROM submissions WHERE status IN ('queued','running')").fetchone()[0] >= 200:
-                raise HTTPException(429, "채점 대기열이 가득 찼습니다. 잠시 후 다시 제출하세요.")
+                raise HTTPException(429, "The judge queue is full. Try again later.")
             cursor = db.execute("INSERT INTO submissions(user_id,problem_id,source,created_at) VALUES (?,?,?,?)", (user["id"], payload.problem_id, payload.source, time.time()))
             submission_id = cursor.lastrowid
         return {"id": submission_id, "status": "queued"}
@@ -316,7 +328,7 @@ def create_app(settings=None):
         with database.connect() as db:
             row = db.execute("SELECT * FROM submissions WHERE id=?", (submission_id,)).fetchone()
         if not row or (row["user_id"] != user["id"] and user["role"] != "admin"):
-            raise HTTPException(404, "제출물을 찾을 수 없습니다.")
+            raise HTTPException(404, "Submission not found.")
         return {**dict(row), "result": json.loads(row["result"]) if row["result"] else None}
 
     @app.get("/api/admin/settings")
@@ -333,7 +345,7 @@ def create_app(settings=None):
     @app.post("/api/admin/problems", status_code=201)
     def create_problem(payload: ProblemPayload, user=Depends(require_admin)):
         with database.connect() as db:
-            cursor = db.execute("INSERT INTO problems(title,description,is_open,created_at) VALUES (?,?,?,?)", (payload.title, payload.description, payload.is_open, time.time()))
+            cursor = db.execute("INSERT INTO problems(title,description,is_open,translations,created_at) VALUES (?,?,?,?,?)", (payload.title, payload.description, payload.is_open, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), time.time()))
             problem_id = cursor.lastrowid
         return {"id": problem_id}
 
@@ -341,7 +353,7 @@ def create_app(settings=None):
     def edit_problem(problem_id: int, payload: ProblemPayload, user=Depends(require_admin)):
         problem_or_404(problem_id)
         with database.connect() as db:
-            db.execute("UPDATE problems SET title=?,description=?,is_open=? WHERE id=?", (payload.title, payload.description, payload.is_open, problem_id))
+            db.execute("UPDATE problems SET title=?,description=?,is_open=?,translations=? WHERE id=?", (payload.title, payload.description, payload.is_open, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), problem_id))
         return {"ok": True}
 
     @app.post("/api/admin/problems/{problem_id}/testcases", status_code=201)
@@ -354,10 +366,10 @@ def create_app(settings=None):
         with database.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT COUNT(*) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0] >= 10:
-                raise HTTPException(400, "문제당 테스트 파일은 10쌍까지 등록할 수 있습니다.")
+                raise HTTPException(400, "Each problem supports at most 10 test pairs.")
             current_bytes = db.execute("SELECT COALESCE(SUM(length(CAST(input_csv AS BLOB))+length(CAST(answer_csv AS BLOB))),0) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0]
             if current_bytes + len(payload.input_csv.encode()) + len(payload.answer_csv.encode()) > 128 * 1024**2:
-                raise HTTPException(400, "문제당 원본·정답 파일의 합계는 128 MiB 이하여야 합니다.")
+                raise HTTPException(400, "Total input and answer data per problem must not exceed 128 MiB.")
             cursor = db.execute("INSERT INTO testcases(problem_id,title,input_csv,answer_csv,is_public,row_count,column_count,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (problem_id, payload.title, payload.input_csv, payload.answer_csv, payload.is_public, rows, columns, case_digest(payload.input_csv, payload.answer_csv), time.time()))
             case_id = cursor.lastrowid
         return {"id": case_id, "rows": rows, "columns": columns}
@@ -367,7 +379,7 @@ def create_app(settings=None):
         with database.connect() as db:
             cursor = db.execute("DELETE FROM testcases WHERE id=? AND problem_id=?", (case_id, problem_id))
         if not cursor.rowcount:
-            raise HTTPException(404, "테스트를 찾을 수 없습니다.")
+            raise HTTPException(404, "Test case not found.")
         return {"ok": True}
 
     @app.post("/api/admin/submissions/{submission_id}/rejudge")
@@ -375,9 +387,9 @@ def create_app(settings=None):
         with database.connect() as db:
             row = db.execute("SELECT status FROM submissions WHERE id=?", (submission_id,)).fetchone()
             if not row:
-                raise HTTPException(404, "제출물을 찾을 수 없습니다.")
+                raise HTTPException(404, "Submission not found.")
             if row["status"] in ("queued", "running"):
-                raise HTTPException(400, "이미 채점 대기 중입니다.")
+                raise HTTPException(400, "This submission is already queued or running.")
             db.execute("UPDATE submissions SET status='queued',result=NULL,profile=NULL,started_at=NULL,finished_at=NULL WHERE id=?", (submission_id,))
         return {"ok": True}
 

@@ -1,0 +1,162 @@
+"use strict";
+// English is the source language. Each entry: en, ko, zh, vi, ru.
+const SORT_LOCALES = ["en", "ko", "zh", "vi", "ru"];
+const SORT_MESSAGES = {
+  language:["Language","언어","语言","Ngôn ngữ","Язык"],
+  checkingJudge:["Checking judge","채점기 확인 중","正在检查评测机","Đang kiểm tra máy chấm","Проверка системы"],
+  problems:["Problems","문제 목록","题目","Bài tập","Задачи"],
+  loading:["Loading…","불러오는 중…","加载中…","Đang tải…","Загрузка…"],
+  interfaceGuide:["Submission interface","제출 인터페이스","提交接口","Giao diện nộp bài","Интерфейс решения"],
+  problemSubmit:["Problem & submit","문제 · 제출","题目与提交","Đề bài · Nộp bài","Задача · Отправка"],
+  leaderboard:["Leaderboard","순위표","排行榜","Bảng xếp hạng","Рейтинг"],
+  submissions:["Submissions","제출 기록","提交记录","Bài đã nộp","Посылки"],
+  noProblems:["No problems published.","등록된 문제가 없습니다.","暂无题目。","Chưa có bài tập.","Задач пока нет."],
+  cpuTime:["CPU time","CPU 시간","CPU 时间","Thời gian CPU","Время CPU"],
+  memory:["Memory","메모리","内存","Bộ nhớ","Память"],
+  repetitions:["Repetitions","반복 횟수","重复次数","Số lần chạy","Повторения"],
+  inputData:["Input data","원본 데이터","原始数据","Dữ liệu đầu vào","Входные данные"],
+  scoreWeights:["Correctness 60 · Time 30 · Memory 10","정확성 60 · 시간 30 · 메모리 10","正确性 60 · 时间 30 · 内存 10","Độ đúng 60 · Thời gian 30 · Bộ nhớ 10","Корректность 60 · Время 30 · Память 10"],
+  submitCode:["Submit code","코드 제출","提交代码","Nộp mã nguồn","Отправить код"],
+  template:["Template ↓","템플릿 ↓","模板 ↓","Mẫu ↓","Шаблон ↓"],
+  loadFile:["Load .c file",".c 파일 불러오기","加载 .c 文件","Mở tệp .c","Открыть файл .c"],
+  cSource:["C source code","C 소스 코드","C 源代码","Mã nguồn C","Исходный код C"],
+  preserveData:["Preserve the header and cell contents.","헤더와 셀 내용을 보존하세요.","请保留表头和单元格内容。","Giữ nguyên tiêu đề và nội dung ô.","Сохраните заголовок и содержимое ячеек."],
+  submit:["Submit","제출","提交","Nộp bài","Отправить"],
+  participants:["Participants","참가자","参赛者","Người tham gia","Участники"],
+  accepted:["Accepted","정답","通过","Đúng","Принято"],
+  fastestTime:["Fastest CPU time","최소 CPU 시간","最短 CPU 时间","CPU nhanh nhất","Минимальное время CPU"],
+  lowestMemory:["Lowest Peak RSS","최소 Peak RSS","最低峰值 RSS","Peak RSS thấp nhất","Минимальный Peak RSS"],
+  rank:["Rank","순위","名次","Hạng","Место"],
+  participant:["Participant","참가자","参赛者","Người tham gia","Участник"],
+  passed:["Passed","통과","通过","Đã qua","Пройдено"],
+  cpuMs:["CPU (ms)","CPU (ms)","CPU（毫秒）","CPU (ms)","CPU (мс)"],
+  score:["Score / 100","점수 / 100","得分 / 100","Điểm / 100","Баллы / 100"],
+  noResults:["No results yet.","아직 채점 결과가 없습니다.","暂无评测结果。","Chưa có kết quả.","Результатов пока нет."],
+  rankingPolicy:["Latest completed submission per student. All tests must pass to receive a rank. Scores within 0.1 points share a rank.","학생별 최신 채점 완료 제출 기준입니다. 전체 통과자에게 순위를 부여하며, 0.1점 이내는 동순위입니다.","每位学生以最近一次已完成评测的提交为准。全部测试通过后才有排名，分差不超过 0.1 则并列。","Dùng bài chấm xong mới nhất của mỗi sinh viên. Phải qua mọi kiểm thử để được xếp hạng; chênh lệch trong 0,1 điểm được đồng hạng.","Учитывается последняя проверенная посылка каждого студента. Место получают прошедшие все тесты; разница до 0,1 балла считается ничьей."],
+  measurementPolicy:["Time: sum of per-test CPU medians. Memory: highest Peak RSS. Shared loading and output code are included. Performance scores are relative to current participants.","시간은 테스트별 CPU 중앙값의 합, 메모리는 최대 Peak RSS입니다. 공통 로딩·출력 비용이 포함되며 성능 점수는 참가자 대비 상대 점수입니다.","时间为各测试 CPU 时间中位数之和，内存为最高峰值 RSS。包含公共加载及输出开销，性能得分相对于当前参赛者计算。","Thời gian là tổng trung vị CPU của từng kiểm thử; bộ nhớ là Peak RSS cao nhất. Bao gồm mã nạp/xuất chung. Điểm hiệu năng được tính tương đối với người tham gia hiện tại.","Время — сумма медиан CPU по тестам; память — максимальный Peak RSS. Включены общие операции загрузки и вывода. Баллы производительности зависят от результатов участников."],
+  mySubmissions:["My submissions","내 제출 기록","我的提交","Bài của tôi","Мои посылки"],
+  latest100:["Latest 100","최근 100건","最近 100 条","100 bài gần nhất","Последние 100"],
+  submission:["Submission","제출","提交","Bài nộp","Посылка"],
+  status:["Status","상태","状态","Trạng thái","Статус"],
+  timeMemory:["CPU / Memory","CPU / 메모리","CPU / 内存","CPU / Bộ nhớ","CPU / Память"],
+  submittedAt:["Submitted","제출 시각","提交时间","Thời điểm nộp","Отправлено"],
+  noSubmissions:["No submissions.","제출 기록이 없습니다.","暂无提交。","Chưa có bài nộp.","Посылок нет."],
+  signIn:["Sign in","로그인","登录","Đăng nhập","Войти"],
+  signOut:["Sign out","로그아웃","退出","Đăng xuất","Выйти"],
+  register:["Register","가입","注册","Đăng ký","Регистрация"],
+  studentId:["Student ID","학번 / 아이디","学号 / 账号","Mã sinh viên","Номер студента / логин"],
+  displayName:["Display name","표시 이름","显示名称","Tên hiển thị","Отображаемое имя"],
+  password:["Password","비밀번호","密码","Mật khẩu","Пароль"],
+  classCode:["Class code","수업 참여 코드","课程邀请码","Mã lớp","Код курса"],
+  guideIntro:["Include csv_sort.h and implement student_sort only. CSV parsing is provided.","csv_sort.h를 포함하고 student_sort 함수만 구현하세요. CSV 파싱은 제공됩니다.","包含 csv_sort.h，只需实现 student_sort 函数。系统提供 CSV 解析。","Thêm csv_sort.h và chỉ cài đặt hàm student_sort. Hệ thống xử lý CSV.","Подключите csv_sort.h и реализуйте только student_sort. Разбор CSV выполняет система."],
+  guideRules:["Sort table->rows according to the problem. Preserve the header, row count, and cell contents. Cells are UTF-8 strings. C column indices start at 0.","문제 조건에 따라 table->rows를 정렬하세요. 헤더, 행 개수, 셀 내용을 보존해야 합니다. 셀은 UTF-8 문자열이며 C 열 번호는 0부터 시작합니다.","按题目要求对 table->rows 排序。保留表头、行数及单元格内容。单元格为 UTF-8 字符串，C 中列索引从 0 开始。","Sắp xếp table->rows theo đề bài. Giữ nguyên tiêu đề, số hàng và nội dung ô. Ô chứa chuỗi UTF-8; chỉ số cột C bắt đầu từ 0.","Отсортируйте table->rows по условию задачи. Сохраните заголовок, число строк и содержимое ячеек. Ячейки — строки UTF-8; индексы столбцов в C начинаются с 0."],
+  guideAnswer:["Cell contents and row order must match the answer exactly, including rows with equal keys. Do not write main() or print output.","셀 내용과 행 순서가 정답과 정확히 같아야 합니다. 같은 키의 행도 해당합니다. main()이나 출력 코드는 작성하지 마세요.","单元格内容和行顺序必须与答案完全一致，包括键值相同的行。请勿编写 main() 或输出代码。","Nội dung ô và thứ tự hàng phải khớp hoàn toàn với đáp án, kể cả các hàng có khóa bằng nhau. Không viết main() hoặc in đầu ra.","Содержимое ячеек и порядок строк должны точно совпадать с ответом, включая строки с одинаковыми ключами. Не пишите main() и не печатайте вывод."],
+  downloadHeader:["Download header","헤더 다운로드","下载头文件","Tải tệp tiêu đề","Скачать заголовок"],
+  downloadTemplate:["Download template","템플릿 다운로드","下载模板","Tải mẫu","Скачать шаблон"],
+  tiePolicy:["Separate time ranks allow 1% ties; memory ranks allow 1 MiB ties. Tiny datasets are more affected by shared runtime overhead.","시간 개별 순위는 1%, 메모리는 1 MiB 이내를 동순위로 처리합니다. 작은 데이터는 공통 실행 비용의 영향을 더 받습니다.","时间单项排名在 1% 以内并列，内存单项排名在 1 MiB 以内并列。小数据集更易受公共运行开销影响。","Xếp hạng thời gian đồng hạng trong 1%; bộ nhớ trong 1 MiB. Dữ liệu nhỏ chịu ảnh hưởng lớn hơn từ chi phí chạy chung.","В отдельных рейтингах время в пределах 1% и память в пределах 1 MiB считаются равными. На малых наборах сильнее влияет общий код запуска."],
+  queued:["Queued","채점 대기","等待评测","Đang chờ","В очереди"],
+  running:["Judging","채점 중","评测中","Đang chấm","Проверяется"],
+  wrong_answer:["Wrong answer","오답","答案错误","Sai đáp án","Неверный ответ"],
+  compile_error:["Compilation error","컴파일 오류","编译错误","Lỗi biên dịch","Ошибка компиляции"],
+  time_limit:["Time limit exceeded","시간 초과","超时","Quá thời gian","Превышено время"],
+  memory_limit:["Memory limit exceeded","메모리 초과","超出内存","Quá bộ nhớ","Превышена память"],
+  runtime_error:["Runtime error","실행 오류","运行错误","Lỗi thực thi","Ошибка выполнения"],
+  output_limit:["Output limit exceeded","출력 초과","超出输出限制","Quá giới hạn đầu ra","Превышен вывод"],
+  system_error:["Judge error","채점기 오류","评测系统错误","Lỗi máy chấm","Ошибка проверки"],
+  judgeReady:["Judge connected","채점기 연결됨","评测机已连接","Máy chấm đã kết nối","Система подключена"],
+  judgeWaiting:["Judge not ready","채점기 준비 중","评测机未就绪","Máy chấm chưa sẵn sàng","Система не готова"],
+  workerNotice:["Judge unavailable. Submissions will remain queued.","채점기 연결 전까지 제출물은 대기열에 보관됩니다.","评测机暂不可用，提交将保留在队列中。","Máy chấm chưa sẵn sàng. Bài nộp sẽ được giữ trong hàng chờ.","Система проверки недоступна. Посылки остаются в очереди."],
+  allClosed:["Submissions are closed.","제출 접수가 마감되었습니다.","提交已关闭。","Đã đóng nhận bài.","Приём решений закрыт."],
+  open:["Open","접수 중","开放","Đang mở","Открыто"],
+  closed:["Closed","마감","已关闭","Đã đóng","Закрыто"],
+  testsCount:["{count} tests","테스트 {count}개","{count} 个测试","{count} kiểm thử","Тестов: {count}"],
+  problemNumber:["Problem {number}","문제 {number}","题目 {number}","Bài {number}","Задача {number}"],
+  dataSize:["{rows} rows · {columns} columns","{rows}행 · {columns}열","{rows} 行 · {columns} 列","{rows} hàng · {columns} cột","{rows} строк · {columns} столбцов"],
+  downloadInput:["Download input","원본 다운로드","下载原始数据","Tải dữ liệu đầu vào","Скачать входные данные"],
+  privateTests:["{count} private tests","비공개 테스트 {count}개","{count} 个隐藏测试","{count} kiểm thử ẩn","Закрытых тестов: {count}"],
+  waitingData:["Waiting for test data.","채점 데이터 등록 대기 중입니다.","等待添加测试数据。","Đang chờ dữ liệu kiểm thử.","Ожидание тестовых данных."],
+  details:["Details","상세","详情","Chi tiết","Подробности"],
+  olderProfile:["Previous test profile","이전 채점 기준","旧评测配置","Cấu hình kiểm thử cũ","Предыдущий набор тестов"],
+  olderResult:["This result uses previous tests and is excluded from the current leaderboard.","이전 채점 기준의 결과로 현재 순위표에서 제외됩니다.","此结果使用旧测试，不计入当前排行榜。","Kết quả dùng kiểm thử cũ, không được tính vào bảng xếp hạng hiện tại.","Результат получен на старых тестах и не входит в текущий рейтинг."],
+  passedCount:["{passed} / {total} passed","{passed} / {total} 통과","通过 {passed} / {total}","Qua {passed} / {total}","Пройдено {passed} / {total}"],
+  rankSummary:["Overall {rank} · Time {time} · Memory {memory}","종합 {rank}위 · 시간 {time}위 · 메모리 {memory}위","总排名 {rank} · 时间 {time} · 内存 {memory}","Tổng {rank} · Thời gian {time} · Bộ nhớ {memory}","Общее место {rank} · Время {time} · Память {memory}"],
+  measurements:["Measurements","반복 측정값","重复测量值","Các lần đo","Измерения"],
+  sourceView:["Submitted code","제출한 소스 코드","提交的代码","Mã nguồn đã nộp","Отправленный код"],
+  lines:["{count} lines","{count}줄","{count} 行","{count} dòng","Строк: {count}"],
+  loggedIn:["Signed in.","로그인했습니다.","已登录。","Đã đăng nhập.","Вход выполнен."],
+  loggedOut:["Signed out.","로그아웃했습니다.","已退出。","Đã đăng xuất.","Вы вышли."],
+  sourceLoaded:["Source file loaded.","소스 파일을 불러왔습니다.","源文件已加载。","Đã mở tệp mã nguồn.","Исходный файл загружен."],
+  submitted:["Submission #{id} queued.","제출 #{id}이 대기열에 등록되었습니다.","提交 #{id} 已加入队列。","Bài #{id} đã vào hàng chờ.","Посылка #{id} поставлена в очередь."],
+  connectionLost:["Connection lost. Reconnecting…","연결이 끊겼습니다. 다시 연결 중…","连接已断开，正在重连…","Mất kết nối. Đang kết nối lại…","Соединение потеряно. Переподключение…"],
+  invalidResponse:["Invalid server response.","서버 응답을 읽지 못했습니다.","服务器响应无效。","Phản hồi máy chủ không hợp lệ.","Некорректный ответ сервера."],
+  invalidForm:["Check the input values.","입력값을 확인하세요.","请检查输入内容。","Vui lòng kiểm tra thông tin nhập.","Проверьте введённые данные."],
+  fileRequired:["Select a file.","파일을 선택하세요.","请选择文件。","Hãy chọn tệp.","Выберите файл."],
+  fileSize:["File must not exceed {size} MiB.","파일은 {size} MiB 이하여야 합니다.","文件不得超过 {size} MiB。","Tệp không được quá {size} MiB.","Файл не должен превышать {size} MiB."],
+  utf8Required:["Select a UTF-8 file.","UTF-8 파일을 선택하세요.","请选择 UTF-8 文件。","Hãy chọn tệp UTF-8.","Выберите файл UTF-8."],
+  cFileRequired:["Select a .c file.",".c 파일을 선택하세요.","请选择 .c 文件。","Hãy chọn tệp .c.","Выберите файл .c."],
+  sourceTooLarge:["Source code must not exceed 64 KiB in UTF-8.","소스 코드는 UTF-8 기준 64 KiB 이하여야 합니다.","源代码的 UTF-8 大小不得超过 64 KiB。","Mã nguồn UTF-8 không được quá 64 KiB.","Исходный код в UTF-8 не должен превышать 64 KiB."],
+  signInRequired:["Sign in to continue.","로그인이 필요합니다.","请先登录。","Vui lòng đăng nhập.","Необходимо войти."],
+  badCredentials:["Incorrect student ID or password.","학번 또는 비밀번호를 확인하세요.","学号或密码错误。","Sai mã sinh viên hoặc mật khẩu.","Неверный логин или пароль."],
+  invalidClassCode:["Invalid class code.","수업 참여 코드가 올바르지 않습니다.","课程邀请码无效。","Mã lớp không hợp lệ.","Неверный код курса."],
+  duplicateId:["This student ID is already registered.","이미 등록된 학번입니다.","该学号已注册。","Mã sinh viên đã được đăng ký.","Этот логин уже зарегистрирован."],
+  loginLimited:["Too many sign-in attempts. Try again in 5 minutes.","로그인 시도가 많습니다. 5분 후 다시 시도하세요.","登录次数过多，请 5 分钟后重试。","Đăng nhập quá nhiều lần. Thử lại sau 5 phút.","Слишком много попыток входа. Повторите через 5 минут."],
+  registrationLimited:["Too many registration attempts. Try again later.","가입 요청이 많습니다. 잠시 후 다시 시도하세요.","注册请求过多，请稍后重试。","Đăng ký quá nhiều lần. Vui lòng thử lại sau.","Слишком много попыток регистрации. Повторите позже."],
+  nameTooShort:["Display name must contain at least 2 characters.","표시 이름을 2자 이상 입력하세요.","显示名称至少需要 2 个字符。","Tên hiển thị cần ít nhất 2 ký tự.","Имя должно содержать не менее 2 символов."],
+  problemClosed:["Submissions are closed for this problem.","이 문제는 제출이 마감되었습니다.","此题已关闭提交。","Bài này đã đóng nhận bài.","Приём решений этой задачи закрыт."],
+  noTestData:["No test data has been registered.","채점 데이터가 등록되지 않았습니다.","尚未添加测试数据。","Chưa có dữ liệu kiểm thử.","Тестовые данные не добавлены."],
+  pendingLimited:["You can have at most 2 pending submissions.","대기 중인 제출물은 최대 2개입니다.","最多可有 2 个待评测提交。","Chỉ được có tối đa 2 bài đang chờ.","Можно иметь не более 2 посылок в очереди."],
+  cooldown:["Wait 20 seconds between submissions.","제출 후 20초 뒤 다시 제출하세요.","两次提交之间请间隔 20 秒。","Chờ 20 giây giữa các lần nộp.","Между отправками должно пройти 20 секунд."],
+  queueFull:["The judge queue is full. Try again later.","채점 대기열이 가득 찼습니다. 잠시 후 다시 시도하세요.","评测队列已满，请稍后重试。","Hàng chờ đã đầy. Hãy thử lại sau.","Очередь заполнена. Повторите позже."],
+  tooLarge:["Request body is too large.","요청 크기가 너무 큽니다.","请求过大。","Yêu cầu quá lớn.","Слишком большой запрос."],
+  invalidOrigin:["Invalid request origin.","요청 출처를 확인할 수 없습니다.","请求来源无效。","Nguồn yêu cầu không hợp lệ.","Недопустимый источник запроса."],
+  problemNotFound:["Problem not found.","문제를 찾을 수 없습니다.","找不到题目。","Không tìm thấy bài tập.","Задача не найдена."],
+  submissionNotFound:["Submission not found.","제출물을 찾을 수 없습니다.","找不到提交。","Không tìm thấy bài nộp.","Посылка не найдена."],
+  rowMismatch:["Data row {row} does not match the answer (header excluded).","데이터 {row}번째 행이 정답과 다릅니다. (헤더 제외)","第 {row} 行数据与答案不符（不含表头）。","Hàng dữ liệu {row} không khớp đáp án (không tính tiêu đề).","Строка данных {row} не совпадает с ответом (без заголовка)."],
+  structureChanged:["Row count, column count, or cell length was changed.","행·열 개수 또는 셀 길이가 변경되었습니다.","行数、列数或单元格长度被修改。","Số hàng, số cột hoặc độ dài ô đã bị thay đổi.","Изменено число строк, столбцов или длина ячейки."],
+  headerChanged:["CSV header was changed.","CSV 헤더가 변경되었습니다.","CSV 表头被修改。","Tiêu đề CSV đã bị thay đổi.","Изменён заголовок CSV."],
+  rowCountChanged:["Output row count does not match the answer.","행 개수가 정답과 다릅니다.","输出行数与答案不符。","Số hàng đầu ra không khớp đáp án.","Число строк не совпадает с ответом."],
+  runtimeExit:["Program terminated abnormally (exit {code}).","프로그램이 비정상 종료되었습니다. (exit {code})","程序异常退出（退出码 {code}）。","Chương trình kết thúc bất thường (exit {code}).","Программа завершилась аварийно (код {code})."],
+  internalJudgeError:["Internal judge error. Contact the administrator.","채점기 오류입니다. 관리자에게 문의하세요.","评测系统错误，请联系管理员。","Lỗi máy chấm. Hãy liên hệ quản trị viên.","Ошибка проверки. Обратитесь к администратору."],
+  cpuExceeded:["CPU or wall time limit exceeded.","CPU 또는 실제 경과 시간 제한을 초과했습니다.","超出 CPU 或实际时间限制。","Vượt giới hạn CPU hoặc thời gian thực.","Превышено время CPU или реальное время."],
+  outputExceeded:["Output size limit exceeded.","출력 크기 제한을 초과했습니다.","超出输出大小限制。","Vượt giới hạn kích thước đầu ra.","Превышен допустимый размер вывода."],
+  allocationFailed:["Failed to allocate CSV memory.","CSV 메모리 할당에 실패했습니다.","无法分配 CSV 内存。","Không thể cấp phát bộ nhớ CSV.","Не удалось выделить память для CSV."],
+  compileExceeded:["Compilation time or memory limit exceeded.","컴파일 시간 또는 메모리 제한을 초과했습니다.","编译超出时间或内存限制。","Biên dịch vượt giới hạn thời gian hoặc bộ nhớ.","Компиляция превысила время или память."],
+  missingOutputHeader:["Output header is missing.","출력 헤더가 없습니다.","缺少输出表头。","Thiếu tiêu đề đầu ra.","В выводе нет заголовка."],
+  invalidOutputDimensions:["Invalid output row or column count.","출력 행·열 개수가 잘못되었습니다.","输出行数或列数无效。","Số hàng hoặc cột đầu ra không hợp lệ.","Неверное число строк или столбцов в выводе."],
+  truncatedOutput:["Output is truncated.","출력이 잘렸습니다.","输出被截断。","Đầu ra bị cắt ngắn.","Вывод обрезан."],
+  invalidCellLength:["Invalid output cell length.","출력 셀 길이가 잘못되었습니다.","输出单元格长度无效。","Độ dài ô đầu ra không hợp lệ.","Неверная длина ячейки в выводе."],
+  trailingOutput:["Unexpected trailing output.","불필요한 출력이 있습니다.","存在多余输出。","Có dữ liệu thừa ở cuối đầu ra.","Обнаружены лишние данные в выводе."],
+};
+window.I18n = (() => {
+  let preferred;
+  try { preferred=localStorage.getItem("sorting-language"); } catch {}
+  preferred = SORT_LOCALES.includes(preferred) ? preferred : (navigator.language||"en").split("-")[0];
+  if(!SORT_LOCALES.includes(preferred)) preferred="en";
+  let locale=preferred;
+  function t(key, args={}) {
+    const values=SORT_MESSAGES[key];
+    const text=values?.[SORT_LOCALES.indexOf(locale)]??values?.[0]??key;
+    return text.replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??`{${name}}`));
+  }
+  function apply() {
+    document.documentElement.lang=locale;
+    document.querySelectorAll("[data-i18n]").forEach(el=>el.textContent=t(el.dataset.i18n));
+    document.querySelectorAll(".close-button").forEach(el=>el.setAttribute("aria-label",{en:"Close",ko:"닫기",zh:"关闭",vi:"Đóng",ru:"Закрыть"}[locale]));
+  }
+  function use(value,admin=false) {
+    if(SORT_LOCALES.includes(value)&&!admin){preferred=value;try{localStorage.setItem("sorting-language",value);}catch{}}
+    locale=admin?"en":preferred;
+    apply();
+    const select=document.querySelector("#language-select");select.value=locale;select.disabled=admin;
+  }
+  function server(message) {
+    const key=Object.keys(SORT_MESSAGES).find(key=>SORT_MESSAGES[key][0]===message);
+    if(key)return t(key);
+    let match=String(message).match(/^Data row (\d+) does not match the answer \(header excluded\)\.$/);
+    if(match)return t("rowMismatch",{row:match[1]});
+    match=String(message).match(/^Program terminated abnormally \(exit (-?\d+)\)\.$/);
+    if(match)return t("runtimeExit",{code:match[1]});
+    return message;
+  }
+  return {t,use,apply,server,get locale(){return locale;},get preferred(){return preferred;},get intl(){return {en:"en-US",ko:"ko-KR",zh:"zh-CN",vi:"vi-VN",ru:"ru-RU"}[locale];}};
+})();
