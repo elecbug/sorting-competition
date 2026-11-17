@@ -1,6 +1,8 @@
+import csv
+import io
 import json
 import time
-from app.auth import hash_password
+import pytest
 from app.scoring import assign_ranks, leaderboard
 from judge.profile import current_profile
 
@@ -30,15 +32,38 @@ def test_scores_and_profiles(app, problem):
     assert current_profile(database,problem) != profile
 
 
-def test_latest_failed_submission_replaces_old_accepted(app, problem):
+@pytest.mark.parametrize("status", ["wrong_answer", "compile_error", "time_limit", "memory_limit", "runtime_error", "output_limit"])
+def test_latest_failed_submission_hides_student_from_leaderboard(app, problem, status):
     database, profile = seed(app, problem)
     with database.connect() as db:
         uid = db.execute("SELECT id FROM users WHERE student_id='student0'").fetchone()[0]
-        db.execute("INSERT INTO submissions(user_id,problem_id,source,status,created_at,profile,result) VALUES (?,?,?,'wrong_answer',?,?,?)",(uid,problem,"wrong",time.time(),profile,json.dumps({"passed":0,"total":1})))
+        db.execute("INSERT INTO submissions(user_id,problem_id,source,status,created_at,profile,result) VALUES (?,?,?,?,?,?,?)",(uid,problem,"wrong",status,time.time(),profile,json.dumps({"passed":0,"total":1})))
     entries=leaderboard(database,profile,problem)
-    failed=next(e for e in entries if e["nickname"]=="학생0")
-    assert failed["rank"] is None and failed["score"] == 0
+    assert {e["student_id"] for e in entries}=={"student1","student2"}
     assert next(e for e in entries if e["nickname"]=="학생1")["rank"] == 1
+
+
+def test_failed_results_hidden_from_api_and_export_but_kept_in_history(app, client, problem):
+    database,profile=seed(app,problem)
+    with database.connect() as db:
+        db.execute("UPDATE submissions SET status='wrong_answer',result=? WHERE user_id=(SELECT id FROM users WHERE student_id='student0')",(json.dumps({"passed":0,"total":1}),))
+    entries=client.get(f'/api/problems/{problem}/leaderboard').json()['entries']
+    assert {e['student_id'] for e in entries}=={'student1','student2'}
+    response=client.get(f'/api/problems/{problem}/leaderboard.csv')
+    assert response.status_code==200
+    exported=list(csv.DictReader(io.StringIO(response.content.decode('utf-8-sig'))))
+    assert {e['student_id'] for e in exported}=={'student1','student2'}
+    history=client.get(f'/api/submissions?problem_id={problem}').json()['submissions']
+    assert next(e for e in history if e['student_id']=='student0')['status']=='wrong_answer'
+
+
+@pytest.mark.parametrize('status',['queued','running','judge_error'])
+def test_unfinished_or_judge_error_does_not_hide_latest_accepted(app,problem,status):
+    database,profile=seed(app,problem)
+    with database.connect() as db:
+        uid=db.execute("SELECT id FROM users WHERE student_id='student0'").fetchone()[0]
+        db.execute('INSERT INTO submissions(user_id,problem_id,source,status,created_at,profile) VALUES (?,?,?,?,?,?)',(uid,problem,'test',status,time.time(),profile))
+    assert {e['student_id'] for e in leaderboard(database,profile,problem)}=={'student0','student1','student2'}
 
 
 def test_ties_use_anchor_and_competition_ranks():

@@ -12,9 +12,9 @@ def leaderboard(database, profile, problem_id):
         rows = db.execute("""
         SELECT s.id, s.user_id, s.status, s.result, s.created_at, u.nickname, u.student_id
         FROM submissions s JOIN users u ON u.id=s.user_id
-        WHERE s.profile=? AND s.problem_id=? AND s.status IN ('accepted','wrong_answer','compile_error','time_limit','memory_limit','runtime_error','output_limit')
+        WHERE s.profile=? AND s.problem_id=? AND s.status='accepted'
         AND u.role='student'
-        AND s.id=(SELECT MAX(s2.id) FROM submissions s2 WHERE s2.user_id=s.user_id AND s2.profile=s.profile
+        AND s.id=(SELECT MAX(s2.id) FROM submissions s2 WHERE s2.user_id=s.user_id AND s2.problem_id=s.problem_id AND s2.profile=s.profile
           AND s2.status IN ('accepted','wrong_answer','compile_error','time_limit','memory_limit','runtime_error','output_limit'))
         """, (profile, problem_id)).fetchall()
     entries = []

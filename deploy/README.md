@@ -83,7 +83,7 @@ Input and answer headers and complete-row multisets must match on upload, includ
 
 The image ID, CPU, limits, repetitions, and test digests define a measurement profile. Old results remain in history but are excluded from changed profiles. Use **Rejudge with current tests** after changing data or grading environments. Changing translated statements alone does not invalidate results.
 
-Only the latest completed submission per student in the current profile is ranked. A newer wrong answer replaces an earlier accepted result; queued/running submissions and judge errors do not. Administrators are excluded. Correctness is passed/all × 60. Performance weights depend on the problem's scoring mode, as described below. Tolerance groups compare each measurement against the group's first member.
+The leaderboard and its CSV export show only students whose latest completed submission in the current profile passes all tests. A newer failed submission removes that student from the leaderboard until they pass again; queued/running submissions and judge errors do not replace completed results. Failed submissions remain available in submission history. Administrators are excluded. Correctness is passed/all × 60. Performance weights depend on the problem's scoring mode, as described below. Tolerance groups compare each measurement against the group's first member.
 
 ## Backups
 

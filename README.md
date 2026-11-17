@@ -63,7 +63,7 @@ Instructors can edit problem titles and statements in each language. Missing tra
 - Balanced problems award up to 30 for CPU time and 10 for memory. Time-priority problems award 40 for CPU time; memory-priority problems award 40 for memory. Each component uses its weight × best measurement / own measurement, with the tolerance grouping described below.
 - Three checked warm-ups and N measured runs per test. CPU uses the sum of per-test trimmed means; memory is the largest measured RSS.
 - A native parent measures CPU/RSS outside the student process. Common data loading/output are included. Compilation and private answer validation are excluded.
-- The latest completed submission per student is ranked. Test/environment profiles separate incompatible measurements. Administrators can rejudge older submissions.
+- Only students whose latest completed submission passes all tests appear in the leaderboard and its CSV export. Failed submissions remain in submission history. Test/environment profiles separate incompatible measurements. Administrators can rejudge older submissions.
 
 ## Course data and development
 
