@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sorting Competition</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/i18n.js" defer></script><script src="/static/access.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="/" class="brand">Sorting Competition</a>
+      <label class="sr-only" for="language-select" data-i18n="language">Language</label>
+    <select id="language-select" aria-label="Language"><option value="en">English</option><option value="ko">한국어</option><option value="zh">中文</option><option value="vi">Tiếng Việt</option><option value="ru">Русский</option></select>
+</header>
+<main class="access-main">
+  <form id="access-form" class="card">
+    <label for="access-code" data-i18n="accessCode">Access code</label>
+    <input type="password" id="access-code" required maxlength="128" autocomplete="off" autofocus>
+    <button type="submit" class="button dark" data-i18n="enterSite">Enter</button>
+    <p id="access-error" role="alert" hidden></p>
+  </form>
+</main>
+</body>
+</html>

@@ -12,7 +12,7 @@ Setup creates `.env` or adds missing Compose variables without replacing existin
 | Service | Purpose | Access |
 | --- | --- | --- |
 | `web` | HTTP UI/API on port 8100 | Persistent `/data`; no Docker socket |
-| `worker` | One sequential judge queue | `/data`, Docker socket, private job volume |
+| `worker` | Pipelined correctness checks and dedicated benchmark cores | `/data`, Docker socket, private job volume |
 | `judge-image` | Build and prepare the sandbox image; exits successfully | No host mounts |
 
 The worker starts after web health and judge-image preparation succeed. Web health is independent of worker readiness so submissions can remain queued during judge outages. Services use `restart: unless-stopped`, read-only root filesystems, non-root application users, dropped capabilities, and no-new-privileges. Ensure the Docker daemon itself starts at boot.
@@ -41,7 +41,7 @@ Do not run host and Compose workers concurrently against the same database. The 
 
 `SORT_DATA_DIR` is the **host** directory bind-mounted as `/data`. The existing `competition.db`, samples, generated answers, sources in SQLite, and private answers stay there. Never mount this directory into student execution containers.
 
-The separate named volume `SORT_JOB_VOLUME` is mounted at `/jobs` in the worker. For each job the worker writes a new unique directory containing only `student.c`. The student container mounts just that directory using `volume-subpath`, read-only, as `/input`. This avoids interpreting a worker-container path as a Docker-host path and prevents one submission from reading other submissions. Docker Engine must support volume subpaths.
+The separate named volume `SORT_JOB_VOLUME` is mounted at `/jobs` in the worker. Each sandbox mounts a unique read-only job directory containing the source or its compiled executable. The worker validates and encodes each CSV pair once per digest in `/jobs/prepared-v1/`. For checks and measurements it mounts only the required digest directories read-only. Their permissions allow the supervisor to read them through the worker group. The candidate drops all supplementary groups before execution. The cache can be regenerated from SQLite. This avoids interpreting a worker-container path as a Docker-host path and prevents one submission from reading other submissions. Docker Engine must support volume subpaths.
 
 Keep `SORT_UID`/`SORT_GID` consistent with the data owner. To run independent installations on one daemon, use separate Compose project names, image names, data paths, and `SORT_JOB_VOLUME` values.
 
@@ -51,7 +51,7 @@ Keep `SORT_UID`/`SORT_GID` consistent with the data owner. To run independent in
 
 Students submit directly with an ID and a personal password (4–128 characters). The first accepted queue insertion creates only the verification record; invalid/closed submissions do not reserve an ID. Later submissions require that password even if a browser session already exists. Concurrent first submissions cannot overwrite each other's password. Passwords are salted scrypt hashes and are excluded from API responses and logs.
 
-There is no registration, class code, nickname requirement, or student login step before submission. A 12-hour private session allows the student to see their own history afterward. From another browser, use the ID/password form on the Submissions tab. Unknown IDs are not created by history verification. The admin sign-in endpoint accepts only administrators.
+The shared `SORT_ACCESS_CODE` protects the home page, downloads, student API and admin sign-in. Setup generates an eight-character code. Share it with the class. A valid code sets a signed 12-hour HttpOnly cookie. Change the code in `.env` and recreate the web service to revoke old admission cookies. The public `/healthz` reports web liveness. A 12-hour private session allows the student to see their own history afterward. From another browser, use the ID/password form on the Submissions tab. Unknown IDs are not created by history verification. The admin sign-in endpoint accepts only administrators.
 
 To correct an ID, open **Students → Correct ID**, enter the new ID and the student's existing personal password. The password must match the record being corrected. The user ID and all submissions/results are preserved; the displayed student ID changes. Existing sessions for that student are revoked. Corrections are audited without storing passwords. A target ID already in use returns a conflict; records are not merged. The instructor resolves the actual identity when student IDs collide.
 
@@ -65,15 +65,15 @@ Connect your domain and use `Caddyfile.example` for TLS. Set `SORT_HOST=127.0.0.
 
 ## Grading and isolation
 
-One worker processes submissions on `SORT_CPU`. Temporary execution containers use a fixed image ID, no network/shared IPC, read-only root, restricted capabilities, default Docker seccomp, and bounded tmpfs. Neither the Docker socket nor database is exposed to student processes.
+One worker coordinates compilation, correctness checking, and benchmarking. Web, queue management and prechecks use the reserved housekeeping CPUs when available. Temporary execution containers use a fixed image ID, no network/shared IPC, read-only root, restricted capabilities, default Docker seccomp, and bounded tmpfs. Neither the Docker socket nor database is exposed to student processes.
 
-The trusted supervisor/native measurement parent use a separate UID from GCC and student code (65534). Private answers stay in supervisor memory, outside the candidate process. A small native launcher forks the measured child after replacing Python's address space, so large supervisor CSV allocations do not inflate candidate RSS. The native parent reports `wait4` CPU time (user + system) and Peak RSS through an FD closed in the candidate. Student-supplied timing output is ignored.
+The trusted supervisor/native measurement parent use a separate UID from GCC and student code (65534). The supervisor compares candidate output with the private encoded answer. The candidate receives just its input on stdin. A small native launcher forks the measured child after replacing Python's address space, so large supervisor CSV allocations do not inflate candidate RSS. The native parent reports `wait4` CPU time (user + system) and Peak RSS through an FD closed in the candidate. Student-supplied timing output is ignored.
 
-Defaults: 2 CPU seconds, 4 wall seconds, 128 MiB address space. The whole sandbox is limited to 1 GiB, including the supervisor. Candidate output, file descriptors, process count, and temporary storage are limited. Allocation failure followed by an invalid student pointer access may be reported as a runtime error.
+Defaults: 2 CPU seconds, 4 wall seconds, 128 MiB address space. Each sandbox has a 1 GiB memory limit including its supervisor. Budget for one sandbox per active measurement core plus the correctness sandbox and worker. Candidate output, file descriptors, process count, and temporary storage are limited. Allocation failure followed by an invalid student pointer access may be reported as a runtime error.
 
 Each test has checked warm-ups followed by N measured fresh processes. All runs must match the answer. CPU trimmed means are summed; the largest measured RSS is used. Compilation, Docker startup, Python CSV parsing, and answer verification are excluded. Shared C loading/output and input memory remain included.
 
-CPU affinity does not reserve a physical core. Keep other services and its SMT sibling idle for fair measurements. Docker shares the host kernel; use a dedicated judge VM/server for hostile public workloads.
+Keep other host workloads off the benchmark cores and their SMT siblings. Docker shares the host kernel; use a dedicated judge VM/server for hostile public workloads.
 
 ## CSV, profiles, and ranking
 
@@ -81,7 +81,7 @@ CSV files: UTF-8 with optional BOM, up to 32 MiB, 100,000 data rows, 64 columns,
 
 Input and answer headers and complete-row multisets must match on upload, including duplicate counts. During grading, every cell and the complete row order must match the answer. Specify tie-breaking for equal keys. CSV quoting/BOM/record separator differences do not affect parsed values; whitespace/newlines inside cells remain data.
 
-The image ID, CPU, limits, repetitions, and test digests define a measurement profile. Old results remain in history but are excluded from changed profiles. Use **Rejudge with current tests** after changing data or grading environments. Changing translated statements alone does not invalidate results.
+Changing the environment profile archives the previous result of the latest completed submission for each student and problem in `prior_measurements`. The worker requeues those submissions once at lower priority than new submissions. The leaderboard fills with results from the new profile as they finish. After editing test data, use **Rejudge with current tests**. Changing translated statements alone does not invalidate results.
 
 The leaderboard and its CSV export show only students whose latest completed submission in the current profile passes all tests. A newer failed submission removes that student from the leaderboard until they pass again; queued/running submissions and judge errors do not replace completed results. Failed submissions remain available in submission history. Administrators are excluded. Correctness is passed/all × 60. Performance weights depend on the problem's scoring mode, as described below. Tolerance groups compare each measurement against the group's first member.
 
@@ -91,9 +91,21 @@ The database contains private code, password hashes, and answer files. Use SQLit
 
 ## Current measurement policy
 
-Run the configured warm-ups, then N measured fresh processes, sort the CPU samples, remove `floor(N × SORT_TRIM_FRACTION)` from each tail, and average the remainder. Peak RSS is the maximum across measured runs. Default warm-ups: 3; settling delay after preparation: 0.2 seconds; trim: 10%. N supports 3–100. The selected CPU also has a one-CPU quota. Keep the reserved core and its SMT sibling free of other workloads.
+Set `SORT_REPETITIONS` independently of `SORT_BENCHMARK_CPUS`. The default `auto` selects up to five distinct physical cores, preferring `SORT_CPU` and reserving at least one physical core for the web service and compilation on multicore hosts. Explicit lists such as `2,4,6,8,10` refer to Linux CPU IDs. Check the server topology with `lscpu -e=CPU,CORE,SOCKET`. On a single physical core the worker serializes both stages.
 
-A profile includes sandbox image, boot ID, CPU, limits, repetitions, warm-ups, trimming, and settling. A host reboot or changed profile requires rejudging. Accepted measurements are canonical per stripped executable hash/profile, with source-hash aliases for exact repeats. Clearing student submissions resets these caches. Job tokens and monotonically increasing submission IDs prevent an interrupted old job from updating a later submission after deletion.
+The worker compiles and validates the library policy once. A separate sandbox checks every case once. Students can see compile errors, incorrect answers, or that their correct solution is waiting for a benchmark. Exact source and executable matches in the same profile reuse the canonical measurement. Preparation and benchmarking overlap across submissions. Only one submission occupies the benchmark cores at a time.
+
+All replicas report ready before the worker releases them together. Each replica has one CPU of quota, settles for `SORT_SETTLE_SECONDS`, and performs `SORT_WARMUP_RUNS` warm-ups per case. The worker distributes N samples across the cores, assigning any remainder to the first cores in the configured order. It pools the raw samples for each case, removes `floor(N × SORT_TRIM_FRACTION)` observations from each tail, then sums the per-case means. Memory is the highest individual measured RSS. Image ID, boot ID, CPU selection, limits, repetitions, warm-ups, trim, settle time and testcase digests identify comparable results.
+
+### Comparing core counts
+
+During a maintenance window, stop the web service and worker so their CPU use cannot overlap the larger calibration pool. Run the calibration command with representative correct submissions from the same problem. Replace 101 and 102 with actual submission IDs. It reads SQLite in read-only mode and runs the production sandbox protocol. Each JSON line gives benchmark completions per minute, per-round CPU time, Peak RSS, CPU coefficient of variation, and score spread. Scores and ranks use the production scoring rules within the selected group. Select a core count using both throughput and score dispersion. The tool tries the requested counts available in the configured pool. The worker lock prevents a calibration run from overlapping a live judge.
+
+```bash
+docker compose stop web worker
+docker compose run --rm --no-deps worker python scripts/calibrate.py --submission 101 102 --cores 1 2 5 10 --rounds 3
+docker compose up -d web worker
+```
 
 Scoring modes: balanced 60 correctness / 30 time / 10 memory; time-priority 60 / 40 / 0; memory-priority 60 / 0 / 40. All tests must pass for a rank. Time-priority ranks CPU time. Memory-priority ranks Peak RSS first and CPU time second when memory is equal. Time and memory-priority tolerances are zero; other memory comparisons allow 1 MiB. Results in the same tolerance group receive equal component points.
 

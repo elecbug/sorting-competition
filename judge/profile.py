@@ -15,10 +15,13 @@ def load_cases(database, problem_id):
         return [dict(r) for r in db.execute("SELECT * FROM testcases WHERE problem_id=? ORDER BY id", (problem_id,))]
 
 
-def current_profile(database, problem_id):
+def case_metadata(database, problem_id):
     with database.connect() as db:
-        cases = [dict(r) for r in db.execute("SELECT id,digest FROM testcases WHERE problem_id=? ORDER BY id", (problem_id,))]
-    return problem_profile(database.get_meta("base_profile"), cases)
+        return [dict(r) for r in db.execute("SELECT id,title,row_count,column_count,digest FROM testcases WHERE problem_id=? ORDER BY id", (problem_id,))]
+
+
+def current_profile(database, problem_id):
+    return problem_profile(database.get_meta("base_profile"), case_metadata(database, problem_id))
 
 
 def case_digest(original, answer):

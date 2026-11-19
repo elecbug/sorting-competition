@@ -7,12 +7,13 @@ from app.main import create_app
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(data_dir=tmp_path / 'data', admin_password='admin-test-password-123'))
+    return create_app(Settings(data_dir=tmp_path / 'data', admin_password='admin-test-password-123', access_code='class-code'))
 
 
 @pytest.fixture
 def client(app):
     with TestClient(app, headers={'X-Requested-With': 'SortingLab'}) as client:
+        assert client.post('/api/access', json={'code':'class-code'}).status_code == 200
         yield client
 
 

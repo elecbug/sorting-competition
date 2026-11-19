@@ -29,11 +29,15 @@ def parse_csv(text):
 def validate_pair(input_csv, answer_csv):
     header, original = parse_csv(input_csv)
     answer_header, answer = parse_csv(answer_csv)
+    validate_rows(header, original, answer_header, answer)
+    return len(original), len(header)
+
+
+def validate_rows(header, original, answer_header, answer):
     if header != answer_header:
         raise ValueError("Input and answer headers must be identical.")
     if Counter(map(tuple, original)) != Counter(map(tuple, answer)):
         raise ValueError("The answer must contain exactly the original rows, including duplicate counts.")
-    return len(original), len(header)
 
 
 def encode_table(header, rows):
@@ -73,13 +77,19 @@ def decode_table(blob):
 def verify_output(blob, answer_header, answer_rows, expected_blob=None):
     if expected_blob is not None and blob == expected_blob:
         return None
+    return compare_encoded(blob, expected_blob if expected_blob is not None else encode_table(answer_header, answer_rows))
+
+
+def compare_encoded(blob, expected_blob):
+    if blob == expected_blob:
+        return None
     try:
         header, actual = decode_table(blob)
     except ValueError as exc:
         return str(exc)
-    if header != tuple(s.encode("utf-8") for s in answer_header):
+    expected_header, expected = decode_table(expected_blob)
+    if header != expected_header:
         return "CSV header was changed."
-    expected = [tuple(s.encode("utf-8") for s in row) for row in answer_rows]
     if len(actual) != len(expected):
         return "Output row count does not match the answer."
     if actual != expected:

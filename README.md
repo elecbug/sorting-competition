@@ -1,6 +1,6 @@
 # Sorting Competition
 
-A self-hosted CSV sorting judge. Instructors upload input/answer CSV pairs. Students submit a C function with their **student ID and a personal password**, without registration or a class code.
+A self-hosted CSV sorting judge. Instructors upload input/answer CSV pairs. Students enter the shared access code, then submit a C function with their **student ID and personal password**.
 
 ```c
 #include "csv_sort.h"
@@ -21,9 +21,9 @@ python3 scripts/setup.py
 docker compose up -d --build
 ```
 
-Open `http://SERVER:8100`. Administrator ID: `admin`; read `SORT_ADMIN_PASSWORD` from `.env`. Setup detects host UID/GID and the Docker socket group, and preserves existing credentials.
+Open `http://SERVER:8100` and enter `SORT_ACCESS_CODE` from `.env`. Administrators then sign in as `admin` with `SORT_ADMIN_PASSWORD`. Setup detects host UID/GID and the Docker socket group, and preserves existing credentials.
 
-The stack has separate **web** and **worker** containers, plus a one-shot **judge-image** service that prepares the sandbox image. Each submission runs in another restricted, temporary container. Only the worker receives the Docker socket; the web container cannot access it. SQLite and uploaded CSVs remain in the host data directory.
+The stack has separate **web** and **worker** containers, plus a one-shot **judge-image** service that prepares the sandbox image. Compilation, correctness checks, and benchmark replicas run in temporary isolated containers. Only the worker receives the Docker socket; the web container cannot access it. SQLite and uploaded CSVs remain in the host data directory.
 
 Compose services join `sorting-comp-net` and receive addresses from `10.230.15.0/24`. Student execution containers run with networking disabled.
 
@@ -50,7 +50,7 @@ docker compose down                  # keeps the database and uploaded data
 
 Passwords are never displayed to instructors or stored in plaintext. If an ID was mistyped, the instructor uses **Students → Correct ID**, verifies the student's password, and enters the correct ID. Submission ownership and results are preserved. An ID already used by another student cannot be silently overwritten or merged. Corrections are logged and previous student sessions are invalidated.
 
-Existing student records and passwords continue to work. The old registration endpoint and class-code requirement have been removed. Leaderboards and CSV exports identify students by ID.
+Existing student records and passwords continue to work. The shared site code grants access to the classroom. Student passwords verify individual submissions. Leaderboards and CSV exports identify students by ID.
 
 ## Languages
 
@@ -63,7 +63,7 @@ Instructors can edit problem titles and statements in each language. Missing tra
 - Correctness: passed tests / all tests × 60.
 - All tests must pass to receive a rank and performance points.
 - Balanced problems award up to 30 for CPU time and 10 for memory. Time-priority problems award 40 for CPU time; memory-priority problems award 40 for memory. Each component uses its weight × best measurement / own measurement, with the tolerance grouping described below.
-- Three checked warm-ups and N measured runs per test. CPU uses the sum of per-test trimmed means; memory is the largest measured RSS.
+- Three checked warm-ups per core and N measured runs in total per test by default. CPU uses the sum of per-test trimmed means; memory is the largest measured RSS.
 - A native parent measures CPU/RSS outside the student process. Common data loading/output are included. Compilation and private answer validation are excluded.
 - Only students whose latest completed submission passes all tests appear in the leaderboard and its CSV export. Failed submissions remain in submission history. Test/environment profiles separate incompatible measurements. Administrators can rejudge older submissions.
 
@@ -107,8 +107,8 @@ Administrators can change the UI language, toggle **Published to students** inde
 
 Only the allowed standard I/O and allocation functions may be referenced. Comparisons, copies, and sorting must be implemented by students. Type/constant headers remain available. Checks use GCC's actual preprocessed source, a Clang syntax tree, and the object's unresolved symbols. Macro aliases, builtins, inline assembly, runtime-symbol replacement, and unresolved indirect calls are rejected. Compiler-generated structure-copy and stack-protection helpers are distinguished from explicit library calls. See `judge/policy.py` for the exact allowed API list.
 
-CPU measurements use warm-up runs followed by N independent processes, discard the configured fraction at both ends, and average the retained observations. With N=100 and a 10% trim, 80 observations remain. `SORT_WARMUP_RUNS`, `SORT_TRIM_FRACTION`, and `SORT_SETTLE_SECONDS` configure preparation; repetitions support 3–100. The sandbox is pinned to one CPU with a one-CPU quota, fixed memory/swap limits, and sequential execution.
+CPU measurements use warm-up runs followed by N independent processes, discard the configured fraction at both ends, and average the retained observations. With N=100 and a 10% trim, 80 observations remain. `SORT_WARMUP_RUNS`, `SORT_TRIM_FRACTION`, and `SORT_SETTLE_SECONDS` configure preparation; repetitions support 3–100. The worker compiles and checks the next submission while one submission occupies the benchmark cores. Each replica gets one physical core and one CPU of quota. Set `SORT_BENCHMARK_CPUS` in `.env` to `auto` (up to five physical cores), a list of logical CPU IDs on distinct cores, or a range. All students use the same ordered set. With ten repetitions and five cores, each core contributes two measurements per case.
 
-The same stripped executable and test/environment profile share one canonical accepted measurement. Exact-source repeats can reuse it before compilation. Comments and formatting that compile to the same executable therefore receive the same measurements. Close results share performance points as well as rank. Current time and memory-priority comparisons use zero tolerance. Other memory rankings use 1 MiB; balanced total-score ranks use 0.1 points. These measures reduce variation; CPU affinity alone does not eliminate interference from other host workloads.
+The same stripped executable and test/environment profile share one canonical accepted measurement. Exact-source repeats reuse it before CSV loading. Executable matches reuse it immediately after compilation and are checked again when their benchmark turn begins. Comments and formatting that compile to the same executable therefore receive the same measurements. Close results share performance points as well as rank. Current time and memory-priority comparisons use zero tolerance. Other memory rankings use 1 MiB; balanced total-score ranks use 0.1 points. These measures reduce variation; CPU affinity alone does not eliminate interference from other host workloads.
 
 Wrong-answer reports describe only invalid output, changed rows, header changes, or incorrect row/tie order. They do not reveal private expected values or mismatch locations.

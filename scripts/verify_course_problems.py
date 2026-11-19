@@ -9,10 +9,11 @@ import tempfile
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from app.config import ROOT, Settings
 from judge.supervisor import judge_job
+from judge.cores import plan
 
 settings=Settings.from_env()
 manifest=json.loads((settings.data_dir/'pending_problem_set.json').read_text())
-allowed=sorted(os.sched_getaffinity(0)-{settings.cpu})
+_, allowed = plan(settings)
 if allowed:os.sched_setaffinity(0,{allowed[0]})
 report=[]
 for problem in manifest['problems']:

@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
     limit(RLIMIT_NOFILE, 64, 64);
     int uid = atoi(argv[5]);
     rlim_t processes = strtoull(argv[4], NULL, 10);
-    if (uid >= 0) limit(RLIMIT_NPROC, processes, processes);
+    if (uid >= 0 && processes) limit(RLIMIT_NPROC, processes, processes);
     if (chdir(argv[6])) return 125;
     if (uid >= 0 && (setgroups(0, NULL) || setgid((gid_t)uid) || setuid((uid_t)uid))) return 125;
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) return 125;

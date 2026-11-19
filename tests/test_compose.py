@@ -19,9 +19,9 @@ def test_compose_config_is_separated_and_persistent(tmp_path):
     data = tmp_path / 'data'
     data.mkdir()
     env_file = tmp_path / 'compose.env'
-    env_file.write_text(f'SORT_ADMIN_PASSWORD=test-only-secret\nSORT_DOCKER_GID=999\nSORT_DATA_DIR={data}\n')
+    env_file.write_text(f'SORT_ACCESS_CODE=class-code\nSORT_ADMIN_PASSWORD=test-only-secret\nSORT_DOCKER_GID=999\nSORT_DATA_DIR={data}\n')
     env = os.environ.copy()
-    env.update(SORT_ADMIN_PASSWORD='test-only-secret', SORT_DOCKER_GID='999', SORT_DATA_DIR=str(data))
+    env.update(SORT_ACCESS_CODE='class-code', SORT_ADMIN_PASSWORD='test-only-secret', SORT_DOCKER_GID='999', SORT_DATA_DIR=str(data))
     result = subprocess.run(['docker', 'compose', '--env-file', str(env_file), 'config', '--format', 'json'], cwd=ROOT, env=env, text=True, capture_output=True, check=True)
     config = json.loads(result.stdout)
     web, judge = config['services']['web'], config['services']['worker']
@@ -31,6 +31,8 @@ def test_compose_config_is_separated_and_persistent(tmp_path):
     assert any(v.get('target') == '/var/run/docker.sock' for v in judge['volumes'])
     assert any(v['target'] == '/data' and v['source'] == str(data) for v in web['volumes'])
     assert 'SORT_ADMIN_PASSWORD' not in judge['environment']
+    assert web['environment']['SORT_ACCESS_CODE'] == 'class-code'
+    assert 'SORT_ACCESS_CODE' not in judge['environment']
     assert 'SORT_ENROLLMENT_CODE' not in web['environment']
     assert judge['depends_on']['web']['condition'] == 'service_healthy'
     assert judge['depends_on']['judge-image']['condition'] == 'service_completed_successfully'

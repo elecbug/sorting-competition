@@ -12,6 +12,14 @@ def source_result(database, profile, source_hash):
     return result
 
 
+def binary_result(database, profile, binary_hash):
+    with database.connect() as db:
+        row = db.execute("SELECT result FROM benchmark_cache WHERE profile=? AND binary_hash=?",
+                         (profile, binary_hash)).fetchone()
+    if row:
+        return {**json.loads(row[0]), "measurement_reused": True}
+
+
 def finish(database, submission_id, token, profile, source_hash, result, timestamp):
     with database.connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -25,5 +33,5 @@ def finish(database, submission_id, token, profile, source_hash, result, timesta
             else:
                 db.execute("INSERT INTO benchmark_cache VALUES (?,?,?)", (profile,binary_hash,json.dumps(result)))
             db.execute("INSERT OR REPLACE INTO benchmark_sources VALUES (?,?,?)", (profile,source_hash,binary_hash))
-        db.execute("UPDATE submissions SET status=?,result=?,profile=?,finished_at=? WHERE id=? AND judge_token=?", (result["status"],json.dumps(result),profile,timestamp,submission_id,token))
+        db.execute("UPDATE submissions SET status=?,result=?,profile=?,finished_at=?,stage=NULL,recalibrating=0,judge_token=NULL WHERE id=? AND judge_token=?", (result["status"],json.dumps(result),profile,timestamp,submission_id,token))
     return True

@@ -11,7 +11,7 @@ from urllib.request import urlopen
 
 def main():
     if sys.argv[1] == "web":
-        with urlopen("http://127.0.0.1:8100/api/health", timeout=3) as response:
+        with urlopen("http://127.0.0.1:8100/healthz", timeout=3) as response:
             return 0 if json.load(response).get("web") == "ok" else 1
     path = Path(os.getenv("SORT_DATA_DIR", "/data")) / "competition.db"
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=3) as db:

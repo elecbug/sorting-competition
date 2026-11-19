@@ -1,3 +1,4 @@
+import hmac
 import csv
 import io
 import json
@@ -52,6 +53,10 @@ class BodyLimit:
 
 class Payload(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class AccessCode(Payload):
+    code: str = Field(min_length=1, max_length=128)
 
 
 class Login(Payload):
@@ -155,10 +160,13 @@ def create_app(settings=None):
     settings = settings or Settings.from_env()
     if not settings.admin_password:
         raise RuntimeError("Set SORT_ADMIN_PASSWORD in .env or run scripts/setup.py.")
+    if not 1 <= len(settings.access_code) <= 128 or not settings.access_code.strip():
+        raise RuntimeError("Set SORT_ACCESS_CODE in .env or run scripts/setup.py.")
     database = Database(settings.data_dir)
     from app.problem_sets import install_pending
     install_pending(database, settings.data_dir)
     with database.connect() as db:
+        db.execute("INSERT OR IGNORE INTO metadata VALUES ('access_cookie_key',?)", (json.dumps(secrets.token_hex(32)),))
         admin = db.execute("SELECT * FROM users WHERE student_id='admin'").fetchone()
         if not admin:
             db.execute("INSERT INTO users(student_id,nickname,password,role,created_at) VALUES ('admin','Administrator',?,'admin',?)", (hash_password(settings.admin_password), time.time()))
@@ -166,6 +174,16 @@ def create_app(settings=None):
             db.execute("UPDATE users SET password=? WHERE id=?", (hash_password(settings.admin_password), admin["id"]))
             db.execute("DELETE FROM sessions WHERE user_id=?", (admin["id"],))
         db.execute("UPDATE users SET nickname='Administrator' WHERE student_id='admin'")
+    cookie_key = hmac.digest(bytes.fromhex(database.get_meta("access_cookie_key")), settings.access_code.encode(), "sha256")
+
+    def access_signature(expiry):
+        return hmac.digest(cookie_key, expiry.encode(), "sha256").hex()
+
+    def admitted(request):
+        expiry, _, signature = request.cookies.get("sorting_access", "").partition(".")
+        return (len(expiry) <= 12 and expiry.isascii() and expiry.isdecimal()
+                and int(expiry) > time.time() and hmac.compare_digest(signature.encode(), access_signature(expiry).encode()))
+
     dummy_password = hash_password(secrets.token_urlsafe(20))
     app = FastAPI(title="Sorting Competition", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db = database
@@ -186,16 +204,20 @@ def create_app(settings=None):
             origin = request.headers.get("origin")
             if request.headers.get("x-requested-with") != "SortingLab" or (origin and urlsplit(origin).netloc != request.headers.get("host")):
                 return JSONResponse({"detail": "Invalid request origin."}, status_code=403)
-            if request.url.path.endswith("/testcases"):
+        public = {"/", "/healthz", "/api/access", "/static/favicon.svg", "/static/style.css", "/static/i18n.js", "/static/access.js"}
+        if request.url.path not in public and not admitted(request):
+            response = JSONResponse({"detail": "Access code required.", "access_required": True}, status_code=401)
+        else:
+            if request.method == "POST" and request.url.path.endswith("/testcases"):
                 user = current_user(request)
                 if not user or user["role"] != "admin":
                     return JSONResponse({"detail": "Administrator access required."}, status_code=403)
-        response = await call_next(request)
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        if request.url.path.startswith("/api/"):
+        if request.url.path == "/" or request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -224,8 +246,25 @@ def create_app(settings=None):
         return response
 
     @app.get("/", response_class=HTMLResponse)
-    def home():
-        return templates.get_template("index.html").render()
+    def home(request: Request):
+        return templates.get_template("index.html" if admitted(request) else "access.html").render()
+
+    @app.get("/healthz")
+    def liveness():
+        return {"web": "ok"}
+
+    @app.post("/api/access")
+    def enter(payload: AccessCode, request: Request):
+        ip = request.client.host if request.client else "unknown"
+        if not database.rate_limit(f"access-ip:{ip}", 150, 60):
+            raise HTTPException(429, "Too many attempts. Try again in a minute.")
+        if not hmac.compare_digest(payload.code.encode(), settings.access_code.encode()):
+            raise HTTPException(401, "Incorrect access code.")
+        expiry = str(int(time.time()) + 43200)
+        response = JSONResponse({"ok": True})
+        response.set_cookie("sorting_access", expiry + "." + access_signature(expiry),
+                            httponly=True, secure=settings.cookie_secure, samesite="strict", max_age=43200)
+        return response
 
     @app.get("/api/health")
     def health():
@@ -346,13 +385,13 @@ def create_app(settings=None):
                 raise HTTPException(400, "Submissions are closed for this problem.")
             if not db.execute("SELECT 1 FROM testcases WHERE problem_id=?", (payload.problem_id,)).fetchone():
                 raise HTTPException(400, "No test data has been registered.")
-            pending = db.execute("SELECT COUNT(*) FROM submissions WHERE user_id=? AND status IN ('queued','running')", (user["id"],)).fetchone()[0]
+            pending = db.execute("SELECT COUNT(*) FROM submissions WHERE user_id=? AND recalibrating=0 AND status IN ('queued','running')", (user["id"],)).fetchone()[0]
             if pending >= 2:
                 raise HTTPException(429, "You can have at most 2 pending submissions.")
             last = db.execute("SELECT MAX(created_at) FROM submissions WHERE user_id=?", (user["id"],)).fetchone()[0]
             if last and time.time() - last < 20:
                 raise HTTPException(429, "Wait 20 seconds between submissions.")
-            if db.execute("SELECT COUNT(*) FROM submissions WHERE status IN ('queued','running')").fetchone()[0] >= 200:
+            if db.execute("SELECT COUNT(*) FROM submissions WHERE recalibrating=0 AND status IN ('queued','running')").fetchone()[0] >= 200:
                 raise HTTPException(429, "The judge queue is full. Try again later.")
             highest = int(db.execute("SELECT value FROM metadata WHERE key='submission_high_watermark'").fetchone()[0])
             current_max = db.execute("SELECT COALESCE(MAX(id),0) FROM submissions").fetchone()[0]
@@ -373,7 +412,7 @@ def create_app(settings=None):
             params.append(problem_id)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         with database.connect() as db:
-            rows = db.execute("SELECT s.id,s.problem_id,s.status,s.created_at,s.finished_at,s.profile,s.result,u.student_id FROM submissions s JOIN users u ON u.id=s.user_id" + where + " ORDER BY s.id DESC LIMIT 100", params).fetchall()
+            rows = db.execute("SELECT s.id,s.problem_id,s.status,s.stage,s.created_at,s.finished_at,s.profile,s.result,u.student_id FROM submissions s JOIN users u ON u.id=s.user_id" + where + " ORDER BY s.id DESC LIMIT 100", params).fetchall()
         return {"submissions": [student_identity({**dict(r), "result": json.loads(r["result"]) if r["result"] else None}, admin=user["role"] == "admin") for r in rows]}
 
     @app.get("/api/submissions/{submission_id}")

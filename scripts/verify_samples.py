@@ -13,13 +13,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.config import ROOT, Settings
 from app.db import Database
 from judge.profile import load_cases
+from judge.cores import plan
 from judge.supervisor import judge_job
 
 
 def main():
     settings = Settings.from_env()
     database = Database(settings.data_dir)
-    os.sched_setaffinity(0, {settings.cpu})
+    _, housekeeping = plan(settings)
+    if housekeeping:
+        os.sched_setaffinity(0, housekeeping)
     with database.connect() as db:
         problems = [dict(r) for r in db.execute("SELECT id,title FROM problems WHERE title LIKE '[Sample]%' OR title LIKE '[샘플]%' ORDER BY id")]
     if not problems:

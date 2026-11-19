@@ -3,11 +3,11 @@
 The supervisor remains uid 0; both GCC and the submitted program run as nobody.
 Scores come from wait4(), never from output supplied by the student process.
 """
+import base64
 import json
 import hashlib
 import math
 import os
-import re
 from pathlib import Path
 import signal
 import statistics
@@ -15,7 +15,7 @@ import sys
 import tempfile
 import time
 
-from judge.datasets import encode_table, parse_csv, validate_pair, verify_output
+from judge.datasets import compare_encoded, encode_table, parse_csv, validate_rows
 from judge.policy import prepare_preprocessed, validate_symbols, validate_source
 
 
@@ -92,10 +92,7 @@ def summarize_times(samples, trim_fraction):
     return statistics.mean(retained), retained, 2*discard
 
 
-def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness="/opt/harness.c", include="/opt/include", uid=65534, launcher="/opt/launch"):
-    cases = job["cases"]
-    total = len(cases)
-    binary = str(Path(work_dir) / "sort")
+def compile_program(source_path, binary, total, *, work_dir, harness, include, uid, launcher):
     def checked(argv, output_limit=2 * 1024**2):
         run = run_child(argv, b"", wall_limit=30, cpu_limit=20, memory_mb=384,
             output_limit=output_limit, process_limit=64, work_dir=work_dir, uid=uid, launcher=launcher)
@@ -124,56 +121,106 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
     if uid is not None:
         os.chown(binary, 0, 0)
     os.chmod(binary, 0o555)
-    binary_hash = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
-    time.sleep(job.get("settle_seconds", 0.2))
-    results, suite_times, peak_rss = [], [], 0
-    for case in cases:
-        validate_pair(case["input_csv"], case["answer_csv"])
-        header, original = parse_csv(case["input_csv"])
-        answer_header, answer = parse_csv(case["answer_csv"])
-        payload = encode_table(header, original)
-        expected_blob = encode_table(answer_header, answer)
-        del original
+    return {"status": "compiled", "binary_hash": hashlib.sha256(Path(binary).read_bytes()).hexdigest()}
+
+
+def case_summary(case, samples, memories, trim):
+    median = statistics.median(samples)
+    average, retained, discarded = summarize_times(samples, trim)
+    return {**case, "time_ms": round(average, 4), "median_ms": round(median, 4),
+            "discarded_runs": discarded, "retained_runs": len(retained), "memory_kb": max(memories),
+            "samples_ms": samples, "mad_ms": round(statistics.median(abs(x-median) for x in samples), 4)}
+
+
+def suite_result(results, binary_hash, trim_fraction):
+    passed = sum(r["status"] == "accepted" for r in results)
+    status = next((r["status"] for r in results if r["status"] != "accepted"), "accepted")
+    complete = bool(results) and passed == len(results) and all("samples_ms" in r for r in results)
+    elapsed = sum(summarize_times(r["samples_ms"], trim_fraction)[0] for r in results) if complete else None
+    return {"status": status, "passed": passed, "total": len(results), "cases": results,
+            "binary_hash": binary_hash, "time_statistic": "trimmed_mean",
+            "time_ms": round(elapsed, 4) if complete else None,
+            "memory_kb": max(r["memory_kb"] for r in results) if complete else None}
+
+
+def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness="/opt/harness.c",
+              include="/opt/include", uid=65534, launcher="/opt/launch", cases_dir="/cases",
+              program_path="/input/program", await_start=None):
+    phase = job.get("phase", "full")
+    binary = str(Path(work_dir) / "sort")
+    if phase in ("full", "compile"):
+        compiled = compile_program(source_path, binary, len(job["cases"]), work_dir=work_dir,
+                                   harness=harness, include=include, uid=uid, launcher=launcher)
+        if compiled["status"] != "compiled":
+            return compiled
+        binary_hash = compiled["binary_hash"]
+        if phase == "compile":
+            return {**compiled, "program": base64.b64encode(Path(binary).read_bytes()).decode("ascii")}
+    elif phase in ("check", "measure"):
+        program = Path(program_path).read_bytes()
+        binary_hash = hashlib.sha256(program).hexdigest()
+        if binary_hash != job["binary_hash"]:
+            raise RuntimeError("Compiled program digest mismatch.")
+        Path(binary).write_bytes(program)
+        os.chmod(binary, 0o555)
+    else:
+        raise ValueError("Unknown judge phase.")
+
+    if await_start:
+        await_start()
+    if phase != "check":
+        time.sleep(job.get("settle_seconds", 0.2))
+    results = []
+    for case in job["cases"]:
+        if phase == "full":
+            header, original = parse_csv(case["input_csv"])
+            answer_header, answer = parse_csv(case["answer_csv"])
+            validate_rows(header, original, answer_header, answer)
+            payload, expected = encode_table(header, original), encode_table(header, answer)
+            rows, columns = len(answer), len(header)
+            del original, answer
+        else:
+            directory = Path(cases_dir) / str(case["id"])
+            payload = (directory / "input").read_bytes()
+            expected = (directory / "answer").read_bytes()
+            rows, columns = case["row_count"], case["column_count"]
+        result = {"id": case["id"], "name": case["title"], "status": "accepted", "rows": rows, "columns": columns}
+        warmups = 0 if phase == "check" else job.get("warmup_runs", 3)
+        repetitions = 1 if phase == "check" else job["repetitions"]
         samples, memories = [], []
-        result = {"id": case["id"], "name": case["title"], "status": "accepted", "rows": len(answer), "columns": len(header)}
-        # One checked warm-up and then independent, fresh processes for every sample.
-        warmups = job.get("warmup_runs", 3)
-        for repetition in range(job["repetitions"] + warmups):
-            run = run_child([binary], payload, wall_limit=job["wall_limit"], cpu_limit=job["time_limit"], memory_mb=job["memory_mb"], output_limit=len(payload) + 1, work_dir=work_dir, uid=uid, launcher=launcher)
-            failure = classify(run)
-            if failure:
-                result.update(status=failure[0], message=failure[1])
-                break
-            error = verify_output(run["stdout"], answer_header, answer, expected_blob)
+        for repetition in range(warmups + repetitions):
+            run = run_child([binary], payload, wall_limit=job["wall_limit"], cpu_limit=job["time_limit"],
+                            memory_mb=job["memory_mb"], output_limit=len(payload)+1, work_dir=work_dir,
+                            uid=uid, launcher=launcher, process_limit=0 if phase in ("check", "measure") else 1)
+            error = classify(run)
+            if not error:
+                message = compare_encoded(run["stdout"], expected)
+                if message:
+                    error = ("wrong_answer", message)
             if error:
-                result.update(status="wrong_answer", message=error)
+                result.update(status=error[0], message=error[1])
                 break
             if repetition >= warmups:
                 samples.append(run["time_ms"])
                 memories.append(run["memory_kb"])
-        if result["status"] == "accepted":
-            median = statistics.median(samples)
-            average, retained, discarded = summarize_times(samples, job.get("trim_fraction",0.1))
-            result.update(time_ms=round(average, 4), median_ms=round(median,4), discarded_runs=discarded,
-                          retained_runs=len(retained), memory_kb=max(memories), samples_ms=samples,
-                          mad_ms=round(statistics.median(abs(x - median) for x in samples), 4))
-            suite_times.append(average)
-            peak_rss = max(peak_rss, max(memories))
+        if result["status"] == "accepted" and phase != "check":
+            result = case_summary(result, samples, memories, job.get("trim_fraction", 0.1))
         results.append(result)
-    passed = sum(r["status"] == "accepted" for r in results)
-    status = next((r["status"] for r in results if r["status"] != "accepted"), "accepted")
-    return {"status": status, "passed": passed, "total": total, "cases": results,
-            "binary_hash": binary_hash, "time_statistic": "trimmed_mean",
-            "time_ms": round(sum(suite_times), 4) if passed == total else None,
-            "memory_kb": peak_rss if passed == total else None}
+    return suite_result(results, binary_hash, job.get("trim_fraction", 0.1))
 
 
 def main():
     if os.getuid() != 0 or not Path("/.dockerenv").exists():
         raise SystemExit("Student submissions may only run inside the Docker sandbox.")
-    job = json.load(sys.stdin)
+    job = json.loads(sys.stdin.readline())
+
+    def ready():
+        print("ready", flush=True)
+        if sys.stdin.readline() != "go\n":
+            raise RuntimeError("Benchmark start was cancelled.")
+
     try:
-        result = judge_job(job)
+        result = judge_job(job, await_start=ready if job.get("synchronized") else None)
     except Exception:
         result = {"status": "system_error", "message": "Internal judge error. Contact the administrator."}
     print(json.dumps(result, ensure_ascii=False))

@@ -57,11 +57,19 @@ class Database:
             if "scoring_mode" not in columns:
                 db.execute("ALTER TABLE problems ADD COLUMN scoring_mode TEXT NOT NULL DEFAULT 'balanced'")
             submission_columns = {row[1] for row in db.execute("PRAGMA table_info(submissions)")}
+            if "stage" not in submission_columns:
+                db.execute("ALTER TABLE submissions ADD COLUMN stage TEXT")
+            if "recalibrating" not in submission_columns:
+                db.execute("ALTER TABLE submissions ADD COLUMN recalibrating INTEGER NOT NULL DEFAULT 0")
             if "judge_token" not in submission_columns:
                 db.execute("ALTER TABLE submissions ADD COLUMN judge_token TEXT")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submissions_open', 'true')")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submission_high_watermark', (SELECT CAST(COALESCE(MAX(id),0) AS TEXT) FROM submissions))")
             db.executescript("""
+            CREATE TABLE IF NOT EXISTS prior_measurements (
+              submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+              profile TEXT NOT NULL, status TEXT NOT NULL, result TEXT, finished_at REAL,
+              PRIMARY KEY(submission_id,profile));
             CREATE TABLE IF NOT EXISTS benchmark_cache (
               profile TEXT NOT NULL, binary_hash TEXT NOT NULL, result TEXT NOT NULL,
               PRIMARY KEY(profile,binary_hash));

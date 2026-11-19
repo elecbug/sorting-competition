@@ -26,6 +26,10 @@ def leaderboard(database, profile, problem_id):
             "memory_kb": result.get("memory_kb"), "passed": result.get("passed", 0),
             "total": result.get("total", 12), "rank": None, "time_rank": None, "memory_rank": None,
         })
+    return rank_entries(entries, mode)
+
+
+def rank_entries(entries, mode):
     accepted = [e for e in entries if e["status"] == "accepted"]
     best_time = min((e["time_ms"] for e in accepted), default=1)
     best_memory = min((e["memory_kb"] for e in accepted), default=1)

@@ -138,6 +138,7 @@ def test_existing_student_credentials_are_preserved(app, client, problem):
 def test_concurrent_first_submission_does_not_overwrite_password(app, client, problem):
     def attempt(password):
         with TestClient(app, headers={'X-Requested-With': 'SortingLab'}) as separate:
+            assert separate.post('/api/access', json={'code': 'class-code'}).status_code == 200
             response = submit_student(separate, problem, password=password)
             return password, response.status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -164,7 +165,7 @@ def test_admin_password_verifies_id_correction_without_losing_submissions(app, c
         event = dict(db.execute('SELECT * FROM identity_events').fetchone())
         assert event['old_student_id'] == '20269999' and event['new_student_id'] == '20260001'
         assert 'password' not in event
-    with TestClient(app, cookies={'sorting_session': old_cookie}) as old_session:
+    with TestClient(app, cookies={'sorting_session': old_cookie, 'sorting_access': client.cookies.get('sorting_access')}) as old_session:
         assert old_session.get('/api/me').json()['user'] is None
     assert client.post('/api/student/session', json={'student_id': '20269999', 'password': '1234'}).status_code == 401
     assert client.post('/api/student/session', json={'student_id': '20260001', 'password': '1234'}).status_code == 200

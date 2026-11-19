@@ -13,6 +13,7 @@ async function api(path,options={}) {
   if(options.body!==undefined)headers["Content-Type"]="application/json";
   let response;try{response=await fetch(path,{...options,headers,credentials:"same-origin"});}catch{throw new Error(t("connectionLost"));}
   let body;try{body=await response.json();}catch{throw new Error(t("invalidResponse"));}
+  if(body.access_required){window.location.replace("/");throw new Error(t("accessCode"));}
   if(!response.ok)throw new Error(Array.isArray(body.detail)?t("invalidForm"):I18n.server(body.detail||t("invalidResponse")));
   return body;
 }
@@ -92,12 +93,15 @@ async function loadHistory(){
   if(!state.user){$("#history-body").innerHTML="";$("#history-empty").hidden=false;return;}
   const id=state.selected,r=await api(`/api/submissions${id?`?problem_id=${id}`:""}`);if(state.selected!==id)return;
   $("#history-empty").hidden=r.submissions.length>0;
-  $("#history-body").innerHTML=r.submissions.map(s=>`<tr><td>#${s.id}</td><td>${esc(s.student_id)}</td><td>${badge(s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
+  $("#history-body").innerHTML=r.submissions.map(s=>`<tr><td>#${s.id}</td><td>${esc(s.student_id)}</td><td>${badge(s.stage || s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
 }
-async function showDetail(id){
-  const s=await api(`/api/submissions/${id}`),r=s.result;state.detailId=id;$("#detail-title").textContent=`${t("submission")} #${id}`;
+async function showDetail(id, refresh=false){
+  const s=await api(`/api/submissions/${id}`),r=s.result,dialog=$("#detail-dialog");
+  if(refresh&&(!dialog.open||state.detailId!==id))return;
+  dialog.dataset.pending=String(["queued","running"].includes(s.status));
+  state.detailId=id;$("#detail-title").textContent=`${t("submission")} #${id}`;
   const current=state.entries.find(e=>e.submission_id===Number(id));
-  $("#detail-content").innerHTML=`<div class="detail-summary">${badge(s.status)}<span>${r?t("passedCount",{passed:r.passed??0,total:r.total??"—"}):t("queued")}</span><span>${time(s.created_at)}</span></div>${s.profile&&s.profile!==state.problem?.profile?`<p class="footnote">${t("olderResult")}</p>`:""}${r?.message?`<pre class="detail-message">${esc(I18n.server(r.message))}</pre>`:""}${r?.time_ms!=null?`<div class="detail-summary"><span>CPU <b>${number(r.time_ms)} ms</b></span><span>Peak RSS <b>${number(r.memory_kb/1024)} MiB</b></span></div>`:""}${current?`<p class="detail-ranks">${t("rankSummary",{rank:current.rank??"—",time:current.time_rank??"—",memory:current.memory_rank??"—"})}</p>`:""}${(r?.cases||[]).map(c=>`<div class="detail-case"><div><strong>${esc(c.name)}</strong>${badge(c.status)}</div><small>${t("dataSize",{rows:number(c.rows,0),columns:c.columns})}${c.time_ms!=null?` / ${number(c.time_ms)} ms / MAD ${number(c.mad_ms)} ms / ${number(c.memory_kb/1024)} MiB`:""}</small>${c.message?`<p>${esc(I18n.server(c.message))}</p>`:""}${c.samples_ms?`<details><summary>${t("measurements")}</summary><p class="mono">${c.samples_ms.map(x=>number(x)).join(" · ")} ms</p></details>`:""}</div>`).join("")}<details><summary>${t("sourceView")}</summary><pre><code>${esc(s.source)}</code></pre></details>${state.user?.role==="admin"&&!["queued","running"].includes(s.status)?`<button class="button outline small" data-rejudge="${s.id}">${t("rejudge")}</button>`:""}`;
+  $("#detail-content").innerHTML=`<div class="detail-summary">${badge(s.stage || s.status)}<span>${r?t("passedCount",{passed:r.passed??0,total:r.total??"—"}):""}</span><span>${time(s.created_at)}</span></div>${s.profile&&s.profile!==state.problem?.profile?`<p class="footnote">${t("olderResult")}</p>`:""}${r?.message?`<pre class="detail-message">${esc(I18n.server(r.message))}</pre>`:""}${r?.time_ms!=null?`<div class="detail-summary"><span>CPU <b>${number(r.time_ms)} ms</b></span><span>Peak RSS <b>${number(r.memory_kb/1024)} MiB</b></span></div>`:""}${current?`<p class="detail-ranks">${t("rankSummary",{rank:current.rank??"—",time:current.time_rank??"—",memory:current.memory_rank??"—"})}</p>`:""}${(r?.cases||[]).map(c=>`<div class="detail-case"><div><strong>${esc(c.name)}</strong>${badge(c.status)}</div><small>${t("dataSize",{rows:number(c.rows,0),columns:c.columns})}${c.time_ms!=null?` / ${number(c.time_ms)} ms / MAD ${number(c.mad_ms)} ms / ${number(c.memory_kb/1024)} MiB`:""}</small>${c.message?`<p>${esc(I18n.server(c.message))}</p>`:""}${c.samples_ms?`<details><summary>${t("measurements")}</summary><p class="mono">${c.samples_ms.map(x=>number(x)).join(" · ")} ms</p></details>`:""}</div>`).join("")}<details><summary>${t("sourceView")}</summary><pre><code>${esc(s.source)}</code></pre></details>${state.user?.role==="admin"&&!["queued","running"].includes(s.status)?`<button class="button outline small" data-rejudge="${s.id}">${t("rejudge")}</button>`:""}`;
   if(!$("#detail-dialog").open)$("#detail-dialog").showModal();
 }
 async function loadAdmin(){
@@ -223,6 +227,6 @@ document.addEventListener("click",async e=>{
 async function init(){
   I18n.use(I18n.preferred);updateLines();
   try{state.user=(await api("/api/me")).user;updateUser();await loadOverview();if(state.user?.role==="admin"&&!state.problems.length)showTab("admin");}catch(e){message("#worker-notice",e.message);}
-  setInterval(async()=>{if(document.hidden||polling)return;polling=true;try{await loadOverview();await loadProblem();if(state.tab==="leaderboard")await loadBoard();if(state.tab==="history")await loadHistory();}catch{message("#worker-notice",t("connectionLost"));}finally{polling=false;}},5000);
+  setInterval(async()=>{if(document.hidden||polling)return;polling=true;try{await loadOverview();await loadProblem();if(state.tab==="leaderboard")await loadBoard();if(state.tab==="history")await loadHistory();if($("#detail-dialog").open&&$("#detail-dialog").dataset.pending==="true")await showDetail(state.detailId,true);}catch{message("#worker-notice",t("connectionLost"));}finally{polling=false;}},5000);
 }
 init();
