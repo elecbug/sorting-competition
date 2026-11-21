@@ -20,7 +20,7 @@ def binary_result(database, profile, binary_hash):
         return {**json.loads(row[0]), "measurement_reused": True}
 
 
-def finish(database, submission_id, token, profile, source_hash, result, timestamp):
+def finish(database, submission_id, token, profile, source_hash, result, timestamp, *, check_timing=None):
     with database.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         if not db.execute("SELECT 1 FROM submissions WHERE id=? AND judge_token=? AND status='running'", (submission_id,token)).fetchone():
@@ -33,6 +33,9 @@ def finish(database, submission_id, token, profile, source_hash, result, timesta
             else:
                 db.execute("INSERT INTO benchmark_cache VALUES (?,?,?)", (profile,binary_hash,json.dumps(result)))
             db.execute("INSERT OR REPLACE INTO benchmark_sources VALUES (?,?,?)", (profile,source_hash,binary_hash))
+        # This check belongs to the submission, never to the canonical benchmark cache.
+        if check_timing is not None:
+            result = {**result, "check_timing": check_timing}
         verdict_at = None if result["status"] == "system_error" else timestamp
         db.execute("""UPDATE submissions SET status=?,result=?,profile=?,finished_at=?,
                       first_verdict_at=COALESCE(first_verdict_at, ?),stage=NULL,recalibrating=0,judge_token=NULL

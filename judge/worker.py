@@ -1,6 +1,6 @@
 """One correctness queue and one benchmark queue. Only benchmark replicas share measured cores."""
 import base64
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -90,14 +90,42 @@ class JobControl:
             return not db.execute("SELECT 1 FROM submissions WHERE id=? AND judge_token=? AND status='running'", (self.submission_id, self.token)).fetchone()
 
 
+def check_deadline(stop, deadline):
+    if stop is not None and stop.is_set():
+        raise JudgeInterrupted("Worker stopped; submission returned to the queue.")
+    if time.monotonic() > deadline:
+        raise RuntimeError("Sandbox job deadline exceeded.")
+
+
+def wait_for_ready(run, job, stop, deadline, barrier, pending_program):
+    run.stdin.write(json.dumps(job) + "\n")
+    run.stdin.flush()
+    with selectors.DefaultSelector() as selector:
+        selector.register(run.stdout, selectors.EVENT_READ)
+        while not selector.select(timeout=0.2):
+            check_deadline(stop, deadline)
+            if barrier is not None and barrier.broken:
+                raise RuntimeError("Benchmark startup interrupted.")
+            if pending_program is not None and pending_program.done() and pending_program.result() is None:
+                raise JudgeInterrupted("Speculative check no longer needed.")
+        if run.stdout.readline() != "ready\n":
+            raise RuntimeError("Sandbox failed to report ready.")
+
+
 def execute(settings, source, cases, image_id, stop=None, owner="", *, phase="full", cpu=None,
-            program=None, binary_hash=None, repetitions=None, barrier=None):
+            program=None, binary_hash=None, repetitions=None, barrier=None, pending_program=None):
+    if pending_program is not None and pending_program.done() and pending_program.result() is None:
+        return None
     name = "sorting-judge-" + uuid.uuid4().hex
     job_dir = settings.job_dir or settings.data_dir / "jobs"
     job_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="sorting-", dir=job_dir) as directory:
         Path(directory).chmod(0o755)
-        if program is None:
+        if pending_program is not None:
+            # Bind mounts require the inode to exist before docker run. Fill it before releasing the supervisor.
+            path = Path(directory) / "program"
+            path.touch()
+        elif program is None:
             path = Path(directory) / "student.c"
             path.write_text(source)
         else:
@@ -108,31 +136,31 @@ def execute(settings, source, cases, image_id, stop=None, owner="", *, phase="fu
                "wall_limit": settings.wall_limit, "memory_mb": settings.memory_mb,
                "warmup_runs": settings.warmup_runs, "trim_fraction": settings.trim_fraction,
                "settle_seconds": settings.settle_seconds}
+        if pending_program is not None:
+            job["await_program"] = True
         try:
+            launched = time.monotonic()
             timeout = 90 + len(cases) * (settings.repetitions + settings.warmup_runs) * (settings.wall_limit + 1)
-            run = subprocess.Popen(["docker", *sandbox_args(settings, name, str(path.resolve()), image_id, owner=owner, cpu=cpu, cases=cases if program is not None else ())], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            run = subprocess.Popen(["docker", *sandbox_args(settings, name, str(path.resolve()), image_id, owner=owner, cpu=cpu, cases=cases if program is not None or pending_program is not None else ())], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             deadline = time.monotonic() + timeout
             input_data = json.dumps(job)
             try:
-                if barrier is not None:
-                    run.stdin.write(input_data + "\n")
-                    run.stdin.flush()
-                    with selectors.DefaultSelector() as selector:
-                        selector.register(run.stdout, selectors.EVENT_READ)
-                        while not selector.select(timeout=0.5):
-                            if stop is not None and stop.is_set():
-                                raise JudgeInterrupted()
-                            if time.monotonic() > deadline or barrier.broken:
-                                raise RuntimeError("Benchmark startup interrupted.")
-                        if run.stdout.readline() != "ready\n":
-                            raise RuntimeError("Benchmark sandbox failed to start.")
-                    barrier.wait(timeout=60)
-                    input_data = "go\n"
+                if barrier is not None or pending_program is not None:
+                    wait_for_ready(run, job, stop, deadline, barrier, pending_program)
+                    if barrier is not None:
+                        barrier.wait(timeout=60)
+                        input_data = "go\n"
+                    else:
+                        prepared_ms = (time.monotonic() - launched) * 1000
+                        # Compilation owns the future and releases it on every exit, including cancellation.
+                        ready_program = pending_program.result(timeout=max(0, deadline - time.monotonic()))
+                        input_data = ""
+                        if ready_program is not None:
+                            program, binary_hash = ready_program
+                            path.write_bytes(program)
+                            input_data = json.dumps({"binary_hash": binary_hash}) + "\n"
                 while True:
-                    if stop is not None and stop.is_set():
-                        raise JudgeInterrupted("Worker stopped; submission returned to the queue.")
-                    if time.monotonic() > deadline:
-                        raise RuntimeError("Sandbox job deadline exceeded.")
+                    check_deadline(stop, deadline)
                     try:
                         stdout, stderr = run.communicate(input=input_data, timeout=1)
                         break
@@ -149,7 +177,12 @@ def execute(settings, source, cases, image_id, stop=None, owner="", *, phase="fu
             if run.returncode:
                 log.error("Sandbox exited %s: %s", run.returncode, stderr[:1000])
                 raise RuntimeError("Sandbox container failed. Check Docker and container memory limits.")
+            if pending_program is not None and ready_program is None:
+                return None
             result = json.loads(stdout)
+            if pending_program is not None and "check_execution_ms" in result:
+                result["check_timing"] = {"prepare_ms": round(prepared_ms, 2),
+                                          "execute_ms": result.pop("check_execution_ms")}
             if result.get("status") not in {"compiled", "accepted", "compile_error", "wrong_answer", "time_limit", "memory_limit", "runtime_error", "output_limit", "system_error"}:
                 raise RuntimeError("Invalid response from the sandbox supervisor.")
             return result
@@ -202,6 +235,7 @@ class Submission:
     profile: str | None = None
     program: bytes | None = None
     binary_hash: str | None = None
+    check_timing: dict | None = None
 
 
 def activate_profile(database, base):
@@ -257,6 +291,31 @@ def compile_submission(settings, item, cpu, owner):
         raise RuntimeError("Compiled program digest mismatch.")
 
 
+def compile_or_cached(database, settings, item, cpu, owner):
+    failure = compile_submission(settings, item, cpu, owner)
+    if failure:
+        return failure
+    return binary_result(database, item.profile, item.binary_hash)
+
+
+def check_while_compiling(database, settings, item, cpu, owner):
+    program = Future()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        checker = pool.submit(execute, settings, None, item.cases, item.image, item.control, owner,
+                              phase="check", cpu=cpu, pending_program=program)
+        try:
+            early_result = compile_or_cached(database, settings, item, cpu, owner)
+            if early_result:
+                return early_result
+            program.set_result((item.program, item.binary_hash))
+            checked = checker.result()
+            item.check_timing = checked.pop("check_timing", None)
+            return checked
+        finally:
+            if not program.done():
+                program.set_result(None)
+
+
 def precheck(database, settings, item, cpu, owner):
     item.cases = case_metadata(database, item.problem_id)
     if not item.cases:
@@ -265,15 +324,17 @@ def precheck(database, settings, item, cpu, owner):
     cached = source_result(database, item.profile, item.source_hash)
     if cached:
         return cached
-    failure = compile_submission(settings, item, cpu, owner)
-    if failure:
-        return failure
-    cached = binary_result(database, item.profile, item.binary_hash)
-    if cached:
-        return cached
-    prepare_cases(database, settings, item.cases)
-    checked = execute(settings, None, item.cases, item.image, item.control, owner, phase="check", cpu=cpu,
-                      program=item.program, binary_hash=item.binary_hash)
+    if settings.prestart_check and all(directory(settings, case).is_dir() for case in item.cases):
+        checked = check_while_compiling(database, settings, item, cpu, owner)
+        if checked.get("measurement_reused"):
+            return checked
+    else:
+        early_result = compile_or_cached(database, settings, item, cpu, owner)
+        if early_result:
+            return early_result
+        prepare_cases(database, settings, item.cases)
+        checked = execute(settings, None, item.cases, item.image, item.control, owner, phase="check", cpu=cpu,
+                          program=item.program, binary_hash=item.binary_hash)
     if checked["status"] == "time_limit":
         # Only a run on the official cores may eliminate a submission on timing.
         stage(database, item, "measurement_pending")
@@ -340,7 +401,7 @@ def process(database, settings, item, operation, cpus, owner):
         result = {"status": "system_error", "message": "Internal judge error. Contact the administrator."}
     if result is None:
         return True
-    finish(database, item.id, item.token, item.profile, item.source_hash, result, time.time())
+    finish(database, item.id, item.token, item.profile, item.source_hash, result, time.time(), check_timing=item.check_timing)
     return False
 
 
@@ -421,7 +482,7 @@ def main():
         owner = uuid.uuid4().hex
         database.set_meta("worker_owner", owner)
     stop = threading.Event()
-    state = {"status": "starting", "message": "Preparing the judge worker."}
+    state = {"status": "starting", "message": "Preparing the judge worker.", "prestart_check": settings.prestart_check}
 
     def heartbeat():
         while not stop.is_set():

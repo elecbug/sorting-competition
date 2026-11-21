@@ -34,6 +34,7 @@ class Settings:
     benchmark_cpus: str = "auto"
     prepared_dir: Path | None = None
     prepared_volume: str = ""
+    prestart_check: bool = True
 
     @classmethod
     def from_env(cls):
@@ -56,6 +57,7 @@ class Settings:
             access_code=os.getenv("SORT_ACCESS_CODE", ""),
             prepared_dir=Path(os.environ["SORT_PREPARED_DIR"]) if os.getenv("SORT_PREPARED_DIR") else None,
             prepared_volume=os.getenv("SORT_PREPARED_VOLUME", ""),
+            prestart_check=os.getenv("SORT_PRESTART_CHECK", "true").lower() == "true",
             benchmark_cpus=os.getenv("SORT_BENCHMARK_CPUS", "auto"),
         )
         if not 3 <= settings.repetitions <= 100:

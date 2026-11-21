@@ -114,6 +114,91 @@ print(json.dumps({'status':'accepted','count':job['repetitions']}))
                           barrier=threading.Barrier(1))["count"] == 3
 
 
+@pytest.mark.parametrize("outcome", ["compiled", "compile_error", "cached", "interrupted"])
+def test_prestarted_check_overlaps_compile_and_only_runs_after_release(tmp_path, monkeypatch, outcome):
+    settings = Settings(tmp_path)
+    marker = tmp_path / "ready"
+    executed = tmp_path / "executed"
+    item = SimpleNamespace(id=1, cases=[{"id":1,"digest":"a"*64}], image="image",
+                           control=threading.Event(), profile="profile", check_timing=None)
+    original = subprocess.Popen
+    # Real worker/supervisor pipes, with a trusted fixture standing in for the student process.
+    code = """import hashlib, sys
+from pathlib import Path
+from judge import supervisor
+program, ready, executed = map(Path, sys.argv[1:])
+stdin = sys.stdin
+class Input:
+    reads = 0
+    def readline(self):
+        self.reads += 1
+        if self.reads == 2:
+            assert program.read_bytes() == b''
+            ready.touch()
+        return stdin.readline()
+sys.stdin = Input()
+def judge(job):
+    assert job['phase'] == 'check'
+    assert hashlib.sha256(program.read_bytes()).hexdigest() == job['binary_hash']
+    executed.touch()
+    return {'status':'accepted'}
+supervisor.judge_job = judge
+supervisor.serve_job()
+"""
+    def popen(args, **kwargs):
+        mount = next(arg for arg in args if "dst=/input/program" in arg)
+        path = mount.split("src=", 1)[1].split(",dst=", 1)[0]
+        assert "--pids-limit=3" in args and "--cpuset-cpus=1" in args
+        return original([sys.executable, "-c", code, path, str(marker), str(executed)], **kwargs)
+    def compile_or_cached(*args):
+        deadline = time.monotonic() + 3
+        while not marker.is_file():
+            if time.monotonic() >= deadline:
+                pytest.fail("The checker did not start during compilation")
+            time.sleep(.01)
+        if outcome == "compile_error":
+            return {"status":"compile_error"}
+        if outcome == "cached":
+            return {"status":"accepted","measurement_reused":True}
+        if outcome == "interrupted":
+            raise worker.JudgeInterrupted()
+        item.program = b"trusted fixture"
+        item.binary_hash = worker.hashlib.sha256(item.program).hexdigest()
+    monkeypatch.setattr(worker.subprocess, "Popen", popen)
+    monkeypatch.setattr(worker, "compile_or_cached", compile_or_cached)
+    monkeypatch.setattr(worker, "docker", lambda *a, **kw: pytest.fail("Unexpected force removal"))
+    if outcome == "interrupted":
+        with pytest.raises(worker.JudgeInterrupted):
+            worker.check_while_compiling(None, settings, item, 1, "test")
+    else:
+        result = worker.check_while_compiling(None, settings, item, 1, "test")
+        assert result["status"] == ("compile_error" if outcome == "compile_error" else "accepted")
+    assert executed.exists() == (outcome == "compiled")
+    if outcome == "compiled":
+        assert item.check_timing["prepare_ms"] > 0 and item.check_timing["execute_ms"] >= 0
+    else:
+        assert item.check_timing is None
+    assert not list((tmp_path / "jobs").iterdir())
+
+
+@pytest.mark.parametrize("enabled,cold", [(False, False), (True, True)])
+def test_serial_check_works_when_disabled_or_cases_are_cold(app, problem, tmp_path, monkeypatch, enabled, cold):
+    settings = replace(app.state.settings, prestart_check=enabled)
+    if cold:
+        settings = replace(settings, prepared_dir=tmp_path/"new-cache")
+    db = app.state.db
+    item = SimpleNamespace(id=1, base="base", problem_id=problem, image="image", source_hash="fresh",
+                           control=threading.Event(), program=b"compiled", binary_hash="fingerprint")
+    monkeypatch.setattr(worker, "compile_or_cached", lambda *a: None)
+    monkeypatch.setattr(worker, "check_while_compiling", lambda *a: pytest.fail("unexpected prestart"))
+    def check(*args, phase, cpu, program, binary_hash):
+        assert all(directory(settings, case).is_dir() for case in item.cases)
+        assert phase == "check" and program == item.program and binary_hash == item.binary_hash
+        return {"status":"wrong_answer"}
+    monkeypatch.setattr(worker, "execute", check)
+    assert worker.precheck(db, settings, item, 1, "test")["status"] == "wrong_answer"
+
+
 def test_profile_transition_and_source_binary_hits(app, client, problem, monkeypatch):
     db, settings = app.state.db, app.state.settings
     source = "trusted fixture"
@@ -132,17 +217,27 @@ def test_profile_transition_and_source_binary_hits(app, client, problem, monkeyp
     assert fresh.id == new
     fresh.profile = worker.problem_profile("new", case_metadata(db, problem))
     result = {"status":"accepted","binary_hash":"canonical","time_ms":10,"memory_kb":100,"total":1,"passed":1}
-    finish(db, new, fresh.token, fresh.profile, fresh.source_hash, result, time.time())
+    finish(db, new, fresh.token, fresh.profile, fresh.source_hash, result, time.time(),
+           check_timing={"prepare_ms":100, "execute_ms":20})
+    with db.connect() as conn:
+        stored = json.loads(conn.execute("SELECT result FROM submissions WHERE id=?", (new,)).fetchone()[0])
+        assert stored["check_timing"] == {"prepare_ms":100, "execute_ms":20}
+        assert "check_timing" not in json.loads(conn.execute("SELECT result FROM benchmark_cache").fetchone()[0])
     previous = worker.claim(db, stop, "new", "image")
     assert previous.id == sid and previous.priority == 1
-    monkeypatch.setattr(worker,"execute",lambda *a, **kw: pytest.fail("source or binary hit executed candidate"))
+    speculative = []
+    def unused_checker(*args, pending_program, **kwargs):
+        speculative.append(pending_program.result(timeout=3))
+    monkeypatch.setattr(worker, "execute", unused_checker)
     monkeypatch.setattr(worker,"prepare_cases",lambda *a: pytest.fail("cache hit loaded CSV"))
     assert worker.precheck(db,settings,previous,1,"")["measurement_reused"]
+    assert not speculative
     previous.source_hash = "different"
     def matches(settings, item, cpu, owner):
         item.binary_hash = "canonical"
     monkeypatch.setattr(worker,"compile_submission",matches)
     assert worker.precheck(db,settings,previous,1,"")["measurement_reused"]
+    assert speculative == [None]
     assert worker.benchmark(db,settings,previous,(1,),"")["time_ms"] == 10
     worker.recover(db)
     assert previous.control.is_set()
@@ -210,10 +305,10 @@ def test_docker_pipeline_with_reference_image(app, problem, tmp_path):
     _, image = worker.ready_profile(settings, cpus, housekeeping[0])
     item = SimpleNamespace(source=(ROOT/"examples/reference_sort.c").read_text(), image=image,
                            cases=cases, control=threading.Event())
-    assert worker.compile_submission(settings,item,housekeeping[0],"") is None
     prepare_cases(app.state.db,settings,cases)
-    checked = worker.execute(settings, None, cases, image, program=item.program, binary_hash=item.binary_hash,
-                             phase="check", cpu=housekeeping[0])
+    item.profile = "smoke-test"
+    checked = worker.check_while_compiling(app.state.db, settings, item, housekeeping[0], "")
+    assert item.check_timing["prepare_ms"] > 0 and item.check_timing["execute_ms"] > 0
     assert checked["status"] == "accepted", checked
     measured = worker.measure(settings, item, cpus, "")
     assert measured["status"] == "accepted", measured

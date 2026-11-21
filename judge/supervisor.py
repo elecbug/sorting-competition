@@ -218,6 +218,10 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
 def main():
     if os.getuid() != 0 or not Path("/.dockerenv").exists():
         raise SystemExit("Student submissions may only run inside the Docker sandbox.")
+    serve_job()
+
+
+def serve_job():
     job = json.loads(sys.stdin.readline())
 
     def ready():
@@ -226,7 +230,19 @@ def main():
             raise RuntimeError("Benchmark start was cancelled.")
 
     try:
-        result = judge_job(job, await_start=ready if job.get("synchronized") else None)
+        if job.get("await_program"):
+            if job["phase"] != "check":
+                raise ValueError("Only a correctness check can wait for a program.")
+            print("ready", flush=True)
+            release = sys.stdin.readline()
+            if not release:
+                return
+            job["binary_hash"] = json.loads(release)["binary_hash"]
+            started = time.monotonic()
+            result = judge_job(job)
+            result["check_execution_ms"] = round((time.monotonic() - started) * 1000, 2)
+        else:
+            result = judge_job(job, await_start=ready if job.get("synchronized") else None)
     except Exception:
         result = {"status": "system_error", "message": "Internal judge error. Contact the administrator."}
     print(json.dumps(result, ensure_ascii=False))
