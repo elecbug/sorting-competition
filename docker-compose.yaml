@@ -15,6 +15,7 @@ x-build-args: &build-args
 
 x-judge-settings: &judge-settings
   SORT_DATA_DIR: /data
+  SORT_PREPARED_DIR: /prepared
   SORT_BENCHMARK_CPUS: ${SORT_BENCHMARK_CPUS:-auto}
   SORT_CPU: ${SORT_CPU:-2}
   SORT_REPETITIONS: ${SORT_REPETITIONS:-10}
@@ -45,6 +46,7 @@ services:
     networks:
       - sorting-comp-net
     volumes:
+      - prepared-cases:/prepared
       - type: bind
         source: ${SORT_DATA_DIR:-./data}
         target: /data
@@ -73,8 +75,10 @@ services:
       <<: *judge-settings
       SORT_JUDGE_IMAGE: ${SORT_JUDGE_IMAGE:-sorting-judge:local}
       SORT_JOB_DIR: /jobs
+      SORT_PREPARED_VOLUME: ${SORT_PREPARED_VOLUME:-sorting-competition-prepared}
       SORT_JOB_VOLUME: ${SORT_JOB_VOLUME:-sorting-competition-jobs}
     volumes:
+      - prepared-cases:/prepared
       - type: bind
         source: ${SORT_DATA_DIR:-./data}
         target: /data
@@ -113,6 +117,8 @@ services:
     security_opt: [no-new-privileges:true]
 
 volumes:
+  prepared-cases:
+    name: ${SORT_PREPARED_VOLUME:-sorting-competition-prepared}
   judge-jobs:
     name: ${SORT_JOB_VOLUME:-sorting-competition-jobs}
 

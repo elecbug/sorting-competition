@@ -15,7 +15,7 @@ from conftest import submit_student
 from judge import worker
 from judge.benchmarks import finish
 from judge.cores import plan
-from judge.prepared import directory, prepare_cases
+from judge.prepared import directory, prepare_cases, publish_pair, stage_pair
 from judge.profile import case_metadata
 from judge.supervisor import judge_job
 
@@ -109,7 +109,7 @@ assert sys.stdin.readline()=='go\\n'
 print(json.dumps({'status':'accepted','count':job['repetitions']}))
 """
     monkeypatch.setattr(worker.subprocess,"Popen",lambda args,**kwargs: original([sys.executable,"-c",code],**kwargs))
-    monkeypatch.setattr(worker,"docker",lambda *a, **kw: None)
+    monkeypatch.setattr(worker,"docker",lambda *a, **kw: pytest.fail("unexpected Docker call after clean exit"))
     assert worker.execute(settings,None,[], "image",program=b"fixture",phase="measure",
                           barrier=threading.Barrier(1))["count"] == 3
 
@@ -218,3 +218,87 @@ def test_docker_pipeline_with_reference_image(app, problem, tmp_path):
     measured = worker.measure(settings, item, cpus, "")
     assert measured["status"] == "accepted", measured
     assert len(measured["cases"][0]["samples_ms"]) == 4
+
+def test_upload_prepares_and_startup_restores_private_volume(app, problem, tmp_path):
+    from app.main import create_app
+
+    case = case_metadata(app.state.db, problem)[0]
+    cached = directory(app.state.settings, case)
+    expected = (cached / "answer").read_bytes()
+    settings = replace(app.state.settings, job_dir=tmp_path/"jobs", job_volume="jobs",
+                       prepared_dir=tmp_path/"shared", prepared_volume="prepared")
+    create_app(settings)
+    target = directory(settings, case)
+    assert (target / "answer").read_bytes() == expected
+    args = worker.sandbox_args(settings, "judge", "/jobs/unique/program", "image", cases=[case])
+    mounts = [arg for arg in args if arg.startswith("type=volume")]
+    assert mounts == ["type=volume,src=jobs,dst=/input,volume-subpath=unique,readonly",
+                      f"type=volume,src=prepared,volume-subpath=prepared-v1/{case['digest']},dst=/cases/{case['id']},readonly"]
+
+
+def test_prepared_pair_publication_race_and_invalid_csv(tmp_path):
+    target = tmp_path / "pair"
+    data = "a\\n1\\n"
+    with stage_pair(target, data, data) as (_, first), stage_pair(target, data, data) as (_, second):
+        publish_pair(first, target)
+        publish_pair(second, target)
+    assert list(tmp_path.iterdir()) == [target]
+    assert (target / "input").read_bytes() == (target / "answer").read_bytes()
+    with pytest.raises(ValueError), stage_pair(tmp_path / "invalid", data, "a\\n2\\n"):
+        pytest.fail("Invalid rows accepted")
+
+
+def test_queue_dispatches_during_slow_periodic_docker_probe(app, client, problem, monkeypatch):
+    db, settings = app.state.db, app.state.settings
+    probing, release, stop, judged = (threading.Event() for _ in range(4))
+    probes = 0
+    def probe(*args):
+        nonlocal probes
+        probes += 1
+        if probes > 1:
+            probing.set()
+            assert release.wait(6)
+        return "base", "image"
+    def precheck(*args):
+        judged.set()
+        return {"status":"compile_error"}
+    monkeypatch.setattr(worker, "ready_profile", probe)
+    monkeypatch.setattr(worker, "PROFILE_CHECK_INTERVAL", 0)
+    monkeypatch.setattr(worker, "clean_interrupted_sandboxes", lambda owner: None)
+    monkeypatch.setattr(worker, "precheck", precheck)
+    thread = threading.Thread(target=worker.run_queue, args=(db, settings, (1,2), (0,), stop, {}, "test"))
+    thread.start()
+    try:
+        assert probing.wait(3)
+        assert submit_student(client, problem).status_code == 201
+        assert judged.wait(3)
+    finally:
+        stop.set()
+        release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+
+
+def test_first_verdict_report_counts_deadline_and_preserves_rejudges(app, client, problem):
+    from scripts.latency_report import report
+
+    db = app.state.db
+    sid = submit_student(client, problem).json()["id"]
+    with db.connect() as conn:
+        created = conn.execute("SELECT created_at FROM submissions WHERE id=?", (sid,)).fetchone()[0]
+        conn.execute("UPDATE submissions SET status='running',judge_token='token' WHERE id=?", (sid,))
+    assert finish(db, sid, "token", "test", "source", {"status":"system_error"}, created + 1)
+    with db.connect() as conn:
+        before = report(conn, created + 10)
+        assert before["awaiting_at_or_over_10s"] == 1 and before["median_seconds"] is None
+        conn.execute("UPDATE submissions SET status='running',judge_token='retry' WHERE id=?", (sid,))
+    assert finish(db, sid, "retry", "test", "source", {"status":"compile_error"}, created + 10)
+    with db.connect() as conn:
+        conn.execute("UPDATE submissions SET status='running',judge_token='rejudge' WHERE id=?", (sid,))
+    assert finish(db, sid, "rejudge", "test", "source", {"status":"compile_error"}, created + 25)
+    with db.connect() as conn:
+        measured = report(conn, created + 30)
+        assert measured["student_submissions"] == measured["verdict_at_or_over_10s"] == 1
+        assert measured["awaiting_first_verdict"] == measured["verdict_under_10s"] == 0
+        assert measured["max_seconds"] == measured["p90_seconds"] == 10
+        assert report(conn, created + 30, created + 1)["student_submissions"] == 0

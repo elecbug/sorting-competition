@@ -32,6 +32,8 @@ class Settings:
     settle_seconds: float = 0.2
     access_code: str = ""
     benchmark_cpus: str = "auto"
+    prepared_dir: Path | None = None
+    prepared_volume: str = ""
 
     @classmethod
     def from_env(cls):
@@ -52,6 +54,8 @@ class Settings:
             trim_fraction=float(os.getenv("SORT_TRIM_FRACTION", "0.1")),
             settle_seconds=float(os.getenv("SORT_SETTLE_SECONDS", "0.2")),
             access_code=os.getenv("SORT_ACCESS_CODE", ""),
+            prepared_dir=Path(os.environ["SORT_PREPARED_DIR"]) if os.getenv("SORT_PREPARED_DIR") else None,
+            prepared_volume=os.getenv("SORT_PREPARED_VOLUME", ""),
             benchmark_cpus=os.getenv("SORT_BENCHMARK_CPUS", "auto"),
         )
         if not 3 <= settings.repetitions <= 100:

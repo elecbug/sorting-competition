@@ -49,6 +49,7 @@ class Database:
         self.path.chmod(0o600)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            db.execute("BEGIN IMMEDIATE")
             columns = {row[1] for row in db.execute("PRAGMA table_info(problems)")}
             if "translations" not in columns:
                 db.execute("ALTER TABLE problems ADD COLUMN translations TEXT NOT NULL DEFAULT '{}'")
@@ -63,9 +64,14 @@ class Database:
                 db.execute("ALTER TABLE submissions ADD COLUMN recalibrating INTEGER NOT NULL DEFAULT 0")
             if "judge_token" not in submission_columns:
                 db.execute("ALTER TABLE submissions ADD COLUMN judge_token TEXT")
+            if "first_verdict_at" not in submission_columns:
+                db.execute("ALTER TABLE submissions ADD COLUMN first_verdict_at REAL")
+            db.execute("INSERT OR IGNORE INTO metadata VALUES ('latency_tracking_since', ?)", (str(time.time()),))
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submissions_open', 'true')")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('submission_high_watermark', (SELECT CAST(COALESCE(MAX(id),0) AS TEXT) FROM submissions))")
             db.executescript("""
+            CREATE INDEX IF NOT EXISTS testcase_metadata
+              ON testcases(problem_id,id,title,is_public,row_count,column_count,digest);
             CREATE TABLE IF NOT EXISTS prior_measurements (
               submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
               profile TEXT NOT NULL, status TEXT NOT NULL, result TEXT, finished_at REAL,

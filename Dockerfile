@@ -4,7 +4,7 @@ ARG APP_GID=1001
 RUN pip install --no-cache-dir uv==0.12.5 \
     && groupadd --gid "$APP_GID" app \
     && useradd --uid "$APP_UID" --gid "$APP_GID" --create-home app \
-    && mkdir -p /app /data /jobs && chown app:app /data /jobs
+    && mkdir -p /app /data /jobs /prepared && chown app:app /data /jobs /prepared
 WORKDIR /app
 COPY pyproject.toml uv.lock LICENSE ./
 RUN uv sync --frozen --no-dev --no-install-project --no-cache

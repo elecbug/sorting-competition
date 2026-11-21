@@ -34,6 +34,14 @@ def test_native_csv_reference(tmp_path,launcher):
     assert len(result["cases"][0]["samples_ms"]) == 3
 
 
+def test_wire_fields_cross_input_and_output_buffer_boundaries(tmp_path, launcher):
+    # Vary the offsets of 16 KiB fields, length prefixes and multibyte cells.
+    rows = [f'{i},"가,나","""","{("x" * (16384 - i))}",\n' for i in range(12)]
+    csv = "id,label,quote,text,empty\n" + "".join(rows)
+    source = (ROOT / "examples/student_sort.c").read_text()
+    assert run_fixture(tmp_path, launcher, source, csv, csv)["status"] == "accepted"
+
+
 def test_wrong_order_and_compile_error(tmp_path,launcher):
     result=run_fixture(tmp_path,launcher,'#include "csv_sort.h"\nvoid student_sort(rows *table) {(void)table;}')
     assert result["status"] == "wrong_answer"

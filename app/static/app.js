@@ -14,7 +14,11 @@ async function api(path,options={}) {
   let response;try{response=await fetch(path,{...options,headers,credentials:"same-origin"});}catch{throw new Error(t("connectionLost"));}
   let body;try{body=await response.json();}catch{throw new Error(t("invalidResponse"));}
   if(body.access_required){window.location.replace("/");throw new Error(t("accessCode"));}
-  if(!response.ok)throw new Error(Array.isArray(body.detail)?t("invalidForm"):I18n.server(body.detail||t("invalidResponse")));
+  if(!response.ok){
+    const error=new Error(Array.isArray(body.detail)?t("invalidForm"):I18n.server(body.detail||t("invalidResponse")));
+    error.status=response.status;
+    throw error;
+  }
   return body;
 }
 function message(selector,value){$(selector).textContent=value;$(selector).hidden=!value;}
@@ -91,9 +95,9 @@ function renderBoard(){
 }
 async function loadHistory(){
   if(!state.user){$("#history-body").innerHTML="";$("#history-empty").hidden=false;return;}
-  const id=state.selected,r=await api(`/api/submissions${id?`?problem_id=${id}`:""}`);if(state.selected!==id)return;
+  const id=state.selected,user=state.user,r=await api(`/api/submissions${id?`?problem_id=${id}`:""}`);if(state.selected!==id||state.user!==user)return;
   $("#history-empty").hidden=r.submissions.length>0;
-  $("#history-body").innerHTML=r.submissions.map(s=>`<tr><td>#${s.id}</td><td>${esc(s.student_id)}</td><td>${badge(s.stage || s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
+  $("#history-body").innerHTML=r.submissions.map(s=>`<tr data-submission="${s.id}" data-pending="${["queued","running"].includes(s.status)}" data-stage="${esc(s.stage || s.status)}"><td>#${s.id}</td><td>${esc(s.student_id)}</td><td>${badge(s.stage || s.status)}${s.profile&&state.problem?.profile&&s.profile!==state.problem.profile?`<br><small class="muted">${t("olderProfile")}</small>`:""}</td><td class="mono">${number(s.result?.time_ms)} ms / ${number(s.result?.memory_kb==null?null:s.result.memory_kb/1024)} MiB</td><td>${time(s.created_at)}</td><td><button class="text-button" data-detail="${s.id}">${t("details")}</button></td></tr>`).join("");
 }
 async function showDetail(id, refresh=false){
   const s=await api(`/api/submissions/${id}`),r=s.result,dialog=$("#detail-dialog");
@@ -224,9 +228,48 @@ document.addEventListener("click",async e=>{
     if(b.dataset.deleteCase&&confirm(t("deleteTestConfirm")))await busy(b,async()=>{await api(`/api/admin/problems/${state.selected}/testcases/${b.dataset.deleteCase}`,{method:"DELETE"});await loadProblem();await loadBoard();toast(t("testDeleted"));});
   }catch(err){toast(err.message);}
 });
+async function pollSubmissions(rows){
+  const user=state.user, problem=state.selected;
+  const updates=await Promise.all(rows.map(async row=>({row,current:await api(`/api/submissions/${row.dataset.submission}/status`)})));
+  if(state.user!==user||state.selected!==problem||state.tab!=="history")return;
+  let refreshHistory=false, detailId=null;
+  for(const {row,current} of updates){
+    const status=current.stage||current.status;
+    if(!row.isConnected||row.dataset.stage===status)continue;
+    if(["queued","running"].includes(current.status)){
+      row.cells[2].innerHTML=badge(status);
+      row.dataset.stage=status;
+    }else{
+      refreshHistory=true;
+    }
+    if($("#detail-dialog").open&&String(state.detailId)===row.dataset.submission)detailId=state.detailId;
+  }
+  if(refreshHistory)await loadHistory();
+  if(detailId!==null)await showDetail(detailId,true);
+}
 async function init(){
   I18n.use(I18n.preferred);updateLines();
   try{state.user=(await api("/api/me")).user;updateUser();await loadOverview();if(state.user?.role==="admin"&&!state.problems.length)showTab("admin");}catch(e){message("#worker-notice",e.message);}
-  setInterval(async()=>{if(document.hidden||polling)return;polling=true;try{await loadOverview();await loadProblem();if(state.tab==="leaderboard")await loadBoard();if(state.tab==="history")await loadHistory();if($("#detail-dialog").open&&$("#detail-dialog").dataset.pending==="true")await showDetail(state.detailId,true);}catch{message("#worker-notice",t("connectionLost"));}finally{polling=false;}},5000);
+  let nextOverview=Date.now()+5000;
+  setInterval(async()=>{
+    if(document.hidden||polling)return;
+    polling=true;
+    try{
+      const pending=state.tab==="history"&&state.user?.role==="student"?$$("#history-body tr[data-pending='true']"):[];
+      if(pending.length){
+        await pollSubmissions(pending);
+      }else if(Date.now()>=nextOverview){
+        nextOverview=Date.now()+5000;
+        await loadOverview();await loadProblem();
+        if(state.tab==="leaderboard")await loadBoard();
+        if(state.tab==="history")await loadHistory();
+        if($("#detail-dialog").open&&$("#detail-dialog").dataset.pending==="true")await showDetail(state.detailId,true);
+      }
+    }catch(error){
+      // A submission can disappear when the instructor clears history or unpublishes a problem.
+      if(error.status===404&&state.tab==="history")await loadHistory().catch(()=>{});
+      else message("#worker-notice",t("connectionLost"));
+    }finally{polling=false;}
+  },500);
 }
 init();

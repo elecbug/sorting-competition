@@ -38,6 +38,10 @@ def test_compose_config_is_separated_and_persistent(tmp_path):
     assert judge['depends_on']['judge-image']['condition'] == 'service_completed_successfully'
     job_volume = next(v for v in judge['volumes'] if v['target'] == '/jobs')
     assert config['volumes'][job_volume['source']]['name'] == judge['environment']['SORT_JOB_VOLUME']
+    prepared = next(v['source'] for v in web['volumes'] if v['target'] == '/prepared')
+    assert any(v['target'] == '/prepared' and v['source'] == prepared for v in judge['volumes'])
+    assert config['volumes'][prepared]['name'] == judge['environment']['SORT_PREPARED_VOLUME']
+    assert all(v['target'] != '/jobs' for v in web['volumes'])
     assert config['services']['judge-image']['entrypoint'] == ['/bin/true']
     assert web['read_only'] and judge['read_only']
     assert config['networks']['sorting-comp-net']['ipam']['config'] == [{'subnet': '10.230.15.0/24'}]

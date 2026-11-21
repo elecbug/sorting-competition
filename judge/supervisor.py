@@ -20,9 +20,13 @@ from judge.policy import prepare_preprocessed, validate_symbols, validate_source
 
 
 def run_child(argv, input_data, *, wall_limit, cpu_limit, memory_mb, output_limit, process_limit=1, work_dir="/work", uid=65534, launcher="/opt/launch"):
-    with tempfile.TemporaryFile(dir=work_dir) as inp, tempfile.TemporaryFile(dir=work_dir) as out, tempfile.TemporaryFile(dir=work_dir) as err, tempfile.TemporaryFile(dir=work_dir) as metrics:
-        inp.write(input_data)
-        inp.seek(0)
+    # A fresh read-only descriptor gives each run its own offset into the immutable input.
+    file_input = isinstance(input_data, Path)
+    input_file = input_data.open("rb") if file_input else tempfile.TemporaryFile(dir=work_dir)
+    with input_file as inp, tempfile.TemporaryFile(dir=work_dir) as out, tempfile.TemporaryFile(dir=work_dir) as err, tempfile.TemporaryFile(dir=work_dir) as metrics:
+        if not file_input:
+            inp.write(input_data)
+            inp.seek(0)
         started = time.monotonic()
         command = [launcher, str(math.ceil(cpu_limit)), str(memory_mb * 1024**2), str(output_limit), str(process_limit), str(uid if uid is not None else -1), work_dir, *argv]
         actions = [(os.POSIX_SPAWN_DUP2, inp.fileno(), 0), (os.POSIX_SPAWN_DUP2, out.fileno(), 1), (os.POSIX_SPAWN_DUP2, err.fileno(), 2), (os.POSIX_SPAWN_DUP2, metrics.fileno(), 3)]
@@ -178,10 +182,12 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
             validate_rows(header, original, answer_header, answer)
             payload, expected = encode_table(header, original), encode_table(header, answer)
             rows, columns = len(answer), len(header)
+            payload_size = len(payload)
             del original, answer
         else:
             directory = Path(cases_dir) / str(case["id"])
-            payload = (directory / "input").read_bytes()
+            payload = directory / "input"
+            payload_size = payload.stat().st_size
             expected = (directory / "answer").read_bytes()
             rows, columns = case["row_count"], case["column_count"]
         result = {"id": case["id"], "name": case["title"], "status": "accepted", "rows": rows, "columns": columns}
@@ -190,7 +196,7 @@ def judge_job(job, *, source_path="/input/student.c", work_dir="/work", harness=
         samples, memories = [], []
         for repetition in range(warmups + repetitions):
             run = run_child([binary], payload, wall_limit=job["wall_limit"], cpu_limit=job["time_limit"],
-                            memory_mb=job["memory_mb"], output_limit=len(payload)+1, work_dir=work_dir,
+                            memory_mb=job["memory_mb"], output_limit=payload_size+1, work_dir=work_dir,
                             uid=uid, launcher=launcher, process_limit=0 if phase in ("check", "measure") else 1)
             error = classify(run)
             if not error:

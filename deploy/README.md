@@ -11,8 +11,8 @@ Setup creates `.env` or adds missing Compose variables without replacing existin
 
 | Service | Purpose | Access |
 | --- | --- | --- |
-| `web` | HTTP UI/API on port 8100 | Persistent `/data`; no Docker socket |
-| `worker` | Pipelined correctness checks and dedicated benchmark cores | `/data`, Docker socket, private job volume |
+| `web` | HTTP UI/API on port 8100 | Persistent `/data` and prepared-case volume |
+| `worker` | Pipelined correctness checks and dedicated benchmark cores | `/data`, Docker socket, private job volume and prepared-case volume |
 | `judge-image` | Build and prepare the sandbox image; exits successfully | No host mounts |
 
 The worker starts after web health and judge-image preparation succeed. Web health is independent of worker readiness so submissions can remain queued during judge outages. Services use `restart: unless-stopped`, read-only root filesystems, non-root application users, dropped capabilities, and no-new-privileges. Ensure the Docker daemon itself starts at boot.
@@ -37,15 +37,25 @@ The installer builds images before stopping `sorting-arena-web` and `sorting-are
 
 Do not run host and Compose workers concurrently against the same database. The database file lock prevents accidental duplicate workers.
 
+## Measuring classroom response time
+
+Set `SORT_REPETITIONS=10` and `SORT_BENCHMARK_CPUS=auto` before the session on a host with five benchmark cores and a housekeeping core. Image or measurement profile changes can trigger background rejudges. Let those finish before using the class replay as a latency comparison.
+
+```bash
+docker compose exec -T web python scripts/latency_report.py
+```
+
+The report counts each student submission once, from entry to the submission handler to its first grading verdict. Time spent in the queue is included. A later rejudge preserves the timestamp. An infrastructure error counts as awaiting a grading verdict. The output shows completed and outstanding submissions reaching 10 seconds separately. Pass `--since 2026-11-19T09:00:00+09:00` to select a session. Tracking begins at the first updated startup. Browser polling and network time are additional.
+
 ## Storage and sandbox paths
 
 `SORT_DATA_DIR` is the **host** directory bind-mounted as `/data`. The existing `competition.db`, samples, generated answers, sources in SQLite, and private answers stay there. Never mount this directory into student execution containers.
 
-The separate named volume `SORT_JOB_VOLUME` is mounted at `/jobs` in the worker. Each sandbox mounts a unique read-only job directory containing the source or its compiled executable. The worker validates and encodes each CSV pair once per digest in `/jobs/prepared-v1/`. For checks and measurements it mounts only the required digest directories read-only. Their permissions allow the supervisor to read them through the worker group. The candidate drops all supplementary groups before execution. The cache can be regenerated from SQLite. This avoids interpreting a worker-container path as a Docker-host path and prevents one submission from reading other submissions. Docker Engine must support volume subpaths.
+The private `SORT_JOB_VOLUME` at `/jobs` holds each submission's temporary source or executable. The web and worker share `SORT_PREPARED_VOLUME` at `/prepared`. Uploading a CSV pair prepares immutable input and answer files under `/prepared/prepared-v1/<digest>`. Web startup prepares any missing pairs for open, published problems before accepting requests. The worker can also regenerate missing pairs from SQLite.
 
-Keep `SORT_UID`/`SORT_GID` consistent with the data owner. To run independent installations on one daemon, use separate Compose project names, image names, data paths, and `SORT_JOB_VOLUME` values.
+Each sandbox mounts its own job directory and the required case directories read-only using Docker volume subpaths. The supervisor opens the prepared input separately for each run and supplies it as standard input. Directory and file permissions restrict the answers to the supervisor's group. The student process drops supplementary groups.
 
-`docker compose down` keeps persistent files and the job volume. Do not use `down --volumes` as part of routine updates.
+Keep `SORT_UID` and `SORT_GID` consistent with the data owner. When sharing a Docker daemon between independent installations, use separate Compose project names, image names, data paths, job volumes and prepared-case volumes. `docker compose down` retains the volumes.
 
 ## Student verification and ID correction
 

@@ -33,3 +33,21 @@ def test_gate_rotation_expiry_and_forgery(app, client, monkeypatch):
     expiry = int(original.partition(".")[0])
     monkeypatch.setattr(time, "time", lambda: expiry + 1)
     assert client.get("/api/problems").status_code == 401
+
+
+def test_pending_status_returns_only_state_to_owner_or_admin(app, client, problem):
+    from conftest import submit_student
+
+    sid = submit_student(client, problem).json()["id"]
+    path = f"/api/submissions/{sid}/status"
+    assert client.get(path).json() == {"status": "queued", "stage": None}
+    assert submit_student(client, problem, "20269999").status_code == 201
+    assert client.get(path).status_code == 404
+    with app.state.db.connect() as db:
+        db.execute("UPDATE problems SET is_published=0 WHERE id=?", (problem,))
+    assert client.post("/api/student/session", json={"student_id":"20260001","password":"1234"}).status_code == 200
+    assert client.get(path).status_code == 404
+    assert client.post("/api/login", json={"student_id":"admin","password":"admin-test-password-123"}).status_code == 200
+    assert client.get(path).json() == {"status": "queued", "stage": None}
+    with TestClient(app) as anonymous:
+        assert anonymous.get(path).status_code == 401

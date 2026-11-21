@@ -26,6 +26,7 @@ from judge.supervisor import case_summary, suite_result
 from judge.benchmarks import binary_result, finish, source_result
 
 log = logging.getLogger("judge")
+PROFILE_CHECK_INTERVAL = 10
 
 
 def docker(args, **kwargs):
@@ -59,7 +60,10 @@ def sandbox_args(settings, name, source, image_id, owner="", *, cpu=None, cases=
         for case in cases:
             target = directory(settings, case)
             dest = f"/cases/{int(case['id'])}"
-            if settings.job_volume:
+            if settings.prepared_volume:
+                subpath = target.relative_to(settings.prepared_dir)
+                spec = f"type=volume,src={settings.prepared_volume},volume-subpath={subpath},dst={dest},readonly"
+            elif settings.job_volume and not settings.prepared_dir:
                 subpath = target.relative_to(settings.job_dir)
                 spec = f"type=volume,src={settings.job_volume},volume-subpath={subpath},dst={dest},readonly"
             else:
@@ -149,8 +153,10 @@ def execute(settings, source, cases, image_id, stop=None, owner="", *, phase="fu
             if result.get("status") not in {"compiled", "accepted", "compile_error", "wrong_answer", "time_limit", "memory_limit", "runtime_error", "output_limit", "system_error"}:
                 raise RuntimeError("Invalid response from the sandbox supervisor.")
             return result
-        finally:
+        except BaseException:
+            # A completed docker run uses --rm. Force removal if its client was interrupted.
             docker(["rm", "-f", name], timeout=15)
+            raise
 
 
 def ready_profile(settings, cores, check_cpu):
@@ -221,6 +227,8 @@ def activate_profile(database, base):
 
 def claim(database, stop, base, image):
     with database.connect() as db:
+        if not db.execute("SELECT 1 FROM submissions WHERE status='queued' LIMIT 1").fetchone():
+            return None
         db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT * FROM submissions WHERE status='queued' ORDER BY recalibrating,id LIMIT 1").fetchone()
         if not row:
@@ -344,7 +352,8 @@ def run_queue(database, settings, cores, housekeeping, stop, state, owner):
     recovered = False
     next_check = 0
     enabled = False
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    probe = confirmed = None
+    with ThreadPoolExecutor(max_workers=3) as pool:
         while not stop.is_set():
             if preparing and preparing[1].done():
                 item, future = preparing
@@ -354,23 +363,29 @@ def run_queue(database, settings, cores, housekeeping, stop, state, owner):
             if measuring and measuring.done():
                 measuring.result()
                 measuring = None
-            if time.monotonic() >= next_check:
+            if probe is not None and probe.done():
                 try:
-                    base, new_image = ready_profile(settings, cores, check_cpu)
+                    confirmed = probe.result()
                     if not recovered:
                         clean_interrupted_sandboxes(owner)
                         recover(database)
                         recovered = True
-                    # Drain the previous image before activating a replacement.
-                    enabled = base == active_base or not (waiting or preparing or measuring)
-                    if enabled and base != active_base:
-                        activate_profile(database, base)
-                        active_base, image = base, new_image
                     state.update(status="ready", message="Waiting for submissions.")
                 except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    confirmed = None
                     enabled = False
                     state.update(status="blocked", message=str(exc))
-                next_check = time.monotonic() + 10
+                probe = None
+                next_check = time.monotonic() + PROFILE_CHECK_INTERVAL
+            if probe is None and time.monotonic() >= next_check:
+                # Keep dispatching with the pinned image while Docker answers its periodic probe.
+                probe = pool.submit(ready_profile, settings, cores, check_cpu)
+            if confirmed is not None:
+                base, new_image = confirmed
+                enabled = base == active_base or not (waiting or preparing or measuring)
+                if enabled and base != active_base:
+                    activate_profile(database, base)
+                    active_base, image = base, new_image
             if waiting and measuring is None and state["status"] != "blocked":
                 item = heapq.heappop(waiting)[2]
                 measuring = pool.submit(process, database, settings, item, benchmark, cores, owner)
@@ -382,7 +397,7 @@ def run_queue(database, settings, cores, housekeeping, stop, state, owner):
                 busy = preparing or measuring or waiting
                 state.update(status="running" if busy else "ready",
                              message="Judging submissions." if busy else "Waiting for submissions.")
-            stop.wait(0.15 if preparing or measuring else 0.5)
+            stop.wait(0.1 if preparing or measuring else 0.2)
 
 
 def recover(database):

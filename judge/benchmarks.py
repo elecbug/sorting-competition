@@ -33,5 +33,9 @@ def finish(database, submission_id, token, profile, source_hash, result, timesta
             else:
                 db.execute("INSERT INTO benchmark_cache VALUES (?,?,?)", (profile,binary_hash,json.dumps(result)))
             db.execute("INSERT OR REPLACE INTO benchmark_sources VALUES (?,?,?)", (profile,source_hash,binary_hash))
-        db.execute("UPDATE submissions SET status=?,result=?,profile=?,finished_at=?,stage=NULL,recalibrating=0,judge_token=NULL WHERE id=? AND judge_token=?", (result["status"],json.dumps(result),profile,timestamp,submission_id,token))
+        verdict_at = None if result["status"] == "system_error" else timestamp
+        db.execute("""UPDATE submissions SET status=?,result=?,profile=?,finished_at=?,
+                      first_verdict_at=COALESCE(first_verdict_at, ?),stage=NULL,recalibrating=0,judge_token=NULL
+                      WHERE id=? AND judge_token=?""",
+                   (result["status"], json.dumps(result), profile, timestamp, verdict_at, submission_id, token))
     return True

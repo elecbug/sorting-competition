@@ -19,8 +19,8 @@ from app.config import ROOT, Settings
 from app.db import Database
 from app.privacy import student_identity
 from app.scoring import leaderboard
-from judge.datasets import validate_pair
-from judge.profile import case_digest, current_profile
+from judge.prepared import directory, prepare_cases, publish_pair, stage_pair
+from judge.profile import case_digest, case_metadata, current_profile
 
 
 class BodyLimit:
@@ -165,6 +165,10 @@ def create_app(settings=None):
     database = Database(settings.data_dir)
     from app.problem_sets import install_pending
     install_pending(database, settings.data_dir)
+    with database.connect() as db:
+        open_cases = db.execute("""SELECT t.id,t.digest FROM testcases t JOIN problems p ON p.id=t.problem_id
+                                   WHERE p.is_open=1 AND p.is_published=1""").fetchall()
+    prepare_cases(database, settings, open_cases)
     with database.connect() as db:
         db.execute("INSERT OR IGNORE INTO metadata VALUES ('access_cookie_key',?)", (json.dumps(secrets.token_hex(32)),))
         admin = db.execute("SELECT * FROM users WHERE student_id='admin'").fetchone()
@@ -361,6 +365,7 @@ def create_app(settings=None):
 
     @app.post("/api/submissions", status_code=201)
     def submit(payload: Submission, request: Request, user=Depends(current_user)):
+        received_at = time.time()
         if len(payload.source.encode()) > 65536:
             raise HTTPException(400, "Source code must not exceed 64 KiB in UTF-8.")
         as_admin = user and user["role"] == "admin" and payload.student_id is None and payload.password is None
@@ -368,16 +373,28 @@ def create_app(settings=None):
             if payload.student_id is None or payload.password is None:
                 raise HTTPException(400, "Enter your student ID and personal password.")
             limit_student_attempts(request, payload.student_id)
+            # Normal password hashing should not hold the queue's SQLite write lock.
+            with database.connect() as db:
+                record = db.execute("SELECT password,role FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
+            auth_error = "This student ID uses a different personal password. Check your ID or contact the instructor."
+            if record:
+                if not verify_password(payload.password, record["password"]) or record["role"] != "student":
+                    raise HTTPException(401, auth_error)
+                verified_hash = record["password"]
+            else:
+                verified_hash = hash_password(payload.password)
         with database.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if not as_admin:
                 existing = db.execute("SELECT * FROM users WHERE student_id=?", (payload.student_id,)).fetchone()
                 if existing:
-                    if not verify_password(payload.password, existing["password"]) or existing["role"] != "student":
-                        raise HTTPException(401, "This student ID uses a different personal password. Check your ID or contact the instructor.")
+                    # Another first submission or an instructor correction may have changed this ID.
+                    if existing["role"] != "student" or (existing["password"] != verified_hash
+                            and not verify_password(payload.password, existing["password"])):
+                        raise HTTPException(401, auth_error)
                     user = dict(existing)
                 else:
-                    cursor = db.execute("INSERT INTO users(student_id,nickname,password,created_at) VALUES (?,?,?,?)", (payload.student_id, payload.student_id, hash_password(payload.password), time.time()))
+                    cursor = db.execute("INSERT INTO users(student_id,nickname,password,created_at) VALUES (?,?,?,?)", (payload.student_id, payload.student_id, verified_hash, time.time()))
                     user = dict(db.execute("SELECT * FROM users WHERE id=?", (cursor.lastrowid,)).fetchone())
             problem = db.execute("SELECT * FROM problems WHERE id=?", (payload.problem_id,)).fetchone()
             opened = json.loads(db.execute("SELECT value FROM metadata WHERE key='submissions_open'").fetchone()[0])
@@ -389,7 +406,7 @@ def create_app(settings=None):
             if pending >= 2:
                 raise HTTPException(429, "You can have at most 2 pending submissions.")
             last = db.execute("SELECT MAX(created_at) FROM submissions WHERE user_id=?", (user["id"],)).fetchone()[0]
-            if last and time.time() - last < 20:
+            if last and received_at - last < 20:
                 raise HTTPException(429, "Wait 20 seconds between submissions.")
             if db.execute("SELECT COUNT(*) FROM submissions WHERE recalibrating=0 AND status IN ('queued','running')").fetchone()[0] >= 200:
                 raise HTTPException(429, "The judge queue is full. Try again later.")
@@ -397,7 +414,7 @@ def create_app(settings=None):
             current_max = db.execute("SELECT COALESCE(MAX(id),0) FROM submissions").fetchone()[0]
             submission_id = max(highest, current_max) + 1
             db.execute("UPDATE metadata SET value=? WHERE key='submission_high_watermark'", (str(submission_id),))
-            db.execute("INSERT INTO submissions(id,user_id,problem_id,source,created_at) VALUES (?,?,?,?,?)", (submission_id, user["id"], payload.problem_id, payload.source, time.time()))
+            db.execute("INSERT INTO submissions(id,user_id,problem_id,source,created_at) VALUES (?,?,?,?,?)", (submission_id, user["id"], payload.problem_id, payload.source, received_at))
         return session_response(user, request, {"id": submission_id, "status": "queued"}, status_code=201)
 
     @app.get("/api/submissions")
@@ -423,6 +440,17 @@ def create_app(settings=None):
             raise HTTPException(404, "Submission not found.")
         problem_or_404(row["problem_id"], user)
         return {**dict(row), "result": json.loads(row["result"]) if row["result"] else None}
+
+    @app.get("/api/submissions/{submission_id}/status")
+    def submission_status(submission_id: int, user=Depends(require_user)):
+        with database.connect() as db:
+            row = db.execute("""SELECT s.status,s.stage FROM submissions s
+                JOIN problems p ON p.id=s.problem_id WHERE s.id=? AND
+                (? OR (s.user_id=? AND p.is_published=1))""",
+                (submission_id, user["role"] == "admin", user["id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "Submission not found.")
+        return dict(row)
 
     @app.get("/api/admin/settings")
     def admin_settings(user=Depends(require_admin)):
@@ -474,6 +502,8 @@ def create_app(settings=None):
     @app.patch("/api/admin/problems/{problem_id}")
     def edit_problem(problem_id: int, payload: ProblemPayload, user=Depends(require_admin)):
         problem_or_404(problem_id, user)
+        if payload.is_open and payload.is_published:
+            prepare_cases(database, settings, case_metadata(database, problem_id))
         with database.connect() as db:
             db.execute("UPDATE problems SET title=?,description=?,is_open=?,is_published=?,scoring_mode=?,translations=? WHERE id=?", (payload.title, payload.description, payload.is_open, payload.is_published, payload.scoring_mode, json.dumps({k:v.model_dump() for k,v in payload.translations.items()}, ensure_ascii=False), problem_id))
         return {"ok": True}
@@ -481,6 +511,8 @@ def create_app(settings=None):
     @app.patch("/api/admin/problems/{problem_id}/publication")
     def publish_problem(problem_id: int, payload: PublicationPayload, admin=Depends(require_admin)):
         problem_or_404(problem_id, admin)
+        if payload.is_published:
+            prepare_cases(database, settings, case_metadata(database, problem_id))
         with database.connect() as db:
             db.execute("UPDATE problems SET is_published=? WHERE id=?", (payload.is_published, problem_id))
         return {"ok": True, "is_published": payload.is_published}
@@ -488,19 +520,22 @@ def create_app(settings=None):
     @app.post("/api/admin/problems/{problem_id}/testcases", status_code=201)
     def create_case(problem_id: int, payload: TestcasePayload, user=Depends(require_admin)):
         problem_or_404(problem_id, user)
+        digest = case_digest(payload.input_csv, payload.answer_csv)
+        target = directory(settings, {"digest": digest})
         try:
-            rows, columns = validate_pair(payload.input_csv, payload.answer_csv)
+            with stage_pair(target, payload.input_csv, payload.answer_csv) as ((rows, columns), pair):
+                with database.connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    if db.execute("SELECT COUNT(*) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0] >= 10:
+                        raise HTTPException(400, "Each problem supports at most 10 test pairs.")
+                    current_bytes = db.execute("SELECT COALESCE(SUM(length(CAST(input_csv AS BLOB))+length(CAST(answer_csv AS BLOB))),0) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0]
+                    if current_bytes + len(payload.input_csv.encode()) + len(payload.answer_csv.encode()) > 128 * 1024**2:
+                        raise HTTPException(400, "Total input and answer data per problem must not exceed 128 MiB.")
+                    cursor = db.execute("INSERT INTO testcases(problem_id,title,input_csv,answer_csv,is_public,row_count,column_count,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (problem_id, payload.title, payload.input_csv, payload.answer_csv, payload.is_public, rows, columns, digest, time.time()))
+                    case_id = cursor.lastrowid
+                    publish_pair(pair, target)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        with database.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            if db.execute("SELECT COUNT(*) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0] >= 10:
-                raise HTTPException(400, "Each problem supports at most 10 test pairs.")
-            current_bytes = db.execute("SELECT COALESCE(SUM(length(CAST(input_csv AS BLOB))+length(CAST(answer_csv AS BLOB))),0) FROM testcases WHERE problem_id=?", (problem_id,)).fetchone()[0]
-            if current_bytes + len(payload.input_csv.encode()) + len(payload.answer_csv.encode()) > 128 * 1024**2:
-                raise HTTPException(400, "Total input and answer data per problem must not exceed 128 MiB.")
-            cursor = db.execute("INSERT INTO testcases(problem_id,title,input_csv,answer_csv,is_public,row_count,column_count,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (problem_id, payload.title, payload.input_csv, payload.answer_csv, payload.is_public, rows, columns, case_digest(payload.input_csv, payload.answer_csv), time.time()))
-            case_id = cursor.lastrowid
         return {"id": case_id, "rows": rows, "columns": columns}
 
     @app.delete("/api/admin/problems/{problem_id}/testcases/{case_id}")
